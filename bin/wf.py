@@ -12,14 +12,11 @@ from scipy.interpolate import interp1d, interp2d
 
 matplotlib.use('Qt5Agg')
 
-# get project directory
 project_path = Path.cwd().parent
-# import configuration and functions modules
 sys.path.append(str(project_path))
 
 import lib.cosmo_lib as csmlb
 import config.config as cfg
-
 
 script_name = sys.argv[0]
 params = {'lines.linewidth': 2.5,
@@ -36,8 +33,7 @@ markersize = 10
 
 ###############################################################################
 ###############################################################################
-###############################################################################
-
+####################### ########################################################
 
 
 start = time.perf_counter()
@@ -71,90 +67,48 @@ with open("%s/output/WF/%s/options.txt" % (project_path, WFs_output_folder), "w"
 c = cfg.c
 H0 = cfg.H0
 Om0 = cfg.Om0
+Ode0 = cfg.Ode0
+Ob0 = cfg.Ob0
+Ox0 = cfg.Ox0
+gamma = cfg.gamma
 
-assert 1 > 2
-H0 = 67  # km/(s*Mpc)
+z_minus = cfg.z_minus
+z_plus = cfg.z_plus
+z_mean = cfg.z_mean
+z_min = cfg.z_min
+z_max = cfg.z_max
+z_m = cfg.z_m
+z_0 = cfg.z_0
+zbins = cfg.zbins
 
-Om0 = 0.32
-Ode0 = 0.68
-Ob0 = 0.05
-Ox0 = 0
-gamma = 0.55
+f_out = cfg.f_out
+sigma_b = cfg.sigma_b
+sigma_o = cfg.sigma_o
+c_b = cfg.c_b
+c_o = cfg.c_o
+z_b = cfg.z_b
+z_o = cfg.z_o
 
-z_minus = np.array((0.0010, 0.42, 0.56, 0.68, 0.79, 0.90, 1.02, 1.15, 1.32, 1.58))
-z_plus = np.array((0.42, 0.56, 0.68, 0.79, 0.90, 1.02, 1.15, 1.32, 1.58, 2.50))
+A_IA = cfg.A_IA
+C_IA = cfg.C_IA
+eta_IA = cfg.eta_IA
+beta_IA = cfg.beta_IA
 
-z_mean = (z_plus + z_minus) / 2
-z_min = z_minus[0]
-z_max = z_plus[9]
-# xxx is z_max = 4 to be used everywhere?
-z_max = 4
 
-f_out = 0.1
-sigma_b = 0.05
-sigma_o = 0.05
-c_b = 1.0
-c_o = 1.0
-z_b = 0
-z_o = 0.1
-
-z_m = 0.9
-z_0 = z_m / np.sqrt(2)
-
-A_IA = 1.72
-C_IA = 0.0134
-eta_IA = -0.41
-beta_IA = 2.17
-# beta_IA = 0.0
-
-zbins = 10
 
 simps_z_step_size = 1e-4
 
 n_bar = np.genfromtxt("%s/output/n_bar.txt" % project_path)
-lumin_ratio = np.genfromtxt("%s/data/scaledmeanlum-E2Sa_EXTRAPOLATED.txt" % project_path)
+lumin_ratio = np.genfromtxt("%s/input/scaledmeanlum-E2Sa_EXTRAPOLATED.txt" % project_path)
 
-# instantiate cosmo astropy object for faster distance computation
-cosmo_astropy = w0waCDM(H0=H0, Om0=Om0, Ode0=Ode0, w0=-1.0, wa=0.0, Neff=3.04, m_nu=0.06, Ob0=Ob0)
 
 
 ####################################### function definition
 
-# @njit
-# def E(z):
-#     result = np.sqrt(Om0 * (1 + z) ** 3 + Ode0 + Ox0 * (1 + z) ** 2)
-#     return result
 
 
-@njit
-def inv_E(z):
-    result = 1 / np.sqrt(Om0 * (1 + z) ** 3 + Ode0 + Ox0 * (1 + z) ** 2)
-    return result
 
 
-def E(z):
-    return cosmo_astropy.H(z).value / H0
-
-
-# old, "manual", slowwwww
-# def r_tilde(z):
-#     # r(z) = c/H0 * int_0*z dz/E(z); I don't include the prefactor c/H0 so as to
-#     # have r_tilde(z)
-#     result = quad(inv_E, 0, z)[0]  # integrate 1/E(z) from 0 to z
-#     return result
-
-#
-# def r(z):
-#     result = c / H0 * quad(inv_E, 0, z)[0]
-#     return result
-
-
-def r(z):
-    return cosmo_astropy.comoving_distance(z).value
-
-
-def r_tilde(z):
-    return H0 / c * r(z)
 
 
 @njit
@@ -177,7 +131,7 @@ def n(z):  # note: if you import n_i(z) this function doesn't get called!
 ################################## niz ##############################################
 
 # choose the cut XXX
-# n_i_import = np.genfromtxt("%s/data/Cij-NonLin-eNLA_15gen/niTab-EP10-RB00.dat" %path) # vincenzo (= davide standard, pare)
+# n_i_import = np.genfromtxt("%s/input/Cij-NonLin-eNLA_15gen/niTab-EP10-RB00.dat" %path) # vincenzo (= davide standard, pare)
 # n_i_import = np.genfromtxt(path.parent / "common_data/vincenzo/14may/InputNz/niTab-EP10-RB.dat") # vincenzo, more recent (= davide standard, anzi no!!!!)
 # n_i_import = np.genfromtxt("C:/Users/dscio/Documents/Lavoro/Programmi/Cij_davide/output/WFs_v3_cut/niz_e-19cut.txt") # davide e-20cut
 n_i_import = np.load("%s/output/WF/WFs_v2/niz.npy" % project_path)  # davide standard
@@ -221,7 +175,7 @@ n_i_new = interp2d(zbins_idxs_array, z_values_from_nz, n_i_import_cpy, kind="lin
 
 # @njit
 def wil_tilde_integrand_old(z_prime, z, i):
-    return n_i_old(z_prime, i) * (1 - r_tilde(z) / r_tilde(z_prime))
+    return n_i_old(z_prime, i) * (1 - csmlb.r_tilde(z) / csmlb.r_tilde(z_prime))
 
 
 def wil_tilde_old(z, i):
@@ -231,7 +185,7 @@ def wil_tilde_old(z, i):
 
 
 def wil_tilde_integrand_new(z_prime, z, i_array):
-    return n_i_new(i_array, z_prime).T * (1 - r_tilde(z) / r_tilde(z_prime))
+    return n_i_new(i_array, z_prime).T * (1 - csmlb.r_tilde(z) / csmlb.r_tilde(z_prime))
 
 
 def wil_tilde_new(z, i_array):
@@ -239,11 +193,12 @@ def wil_tilde_new(z, i_array):
     return quad_vec(wil_tilde_integrand_new, z, z_max, args=(z, i_array))[0]
 
 
-
-
 alpha = np.linspace(0.0, 2.0, num=30)
+
+
 def f(x, alpha):
-    return x**alpha
+    return x ** alpha
+
 
 x0, x1 = 0, 2
 y, err = quad_vec(f, x0, x1, args=(alpha,))
@@ -252,7 +207,6 @@ plt.plot(alpha, y)
 plt.xlabel(r"$\alpha$")
 plt.ylabel(r"$\int_{0}^{2} x^\alpha dx$")
 plt.show()
-
 
 # TEST
 z_test = 0.1
@@ -263,6 +217,7 @@ z_array = np.linspace(0.002, 3.9, 3)
 integrand = np.zeros((z_array.size, z_array.size, zbins))
 for z_idx, z_val in enumerate(z_array):
     integrand[z_idx, :, :] = wil_tilde_integrand_new(z_array, z_val, zbins_idxs_array).T
+
 
 def integral(z_idx):
     return simpson(integrand[z_idx:, :, :], axis=0)
@@ -284,19 +239,17 @@ print('simps done in', time.perf_counter() - start, 'seconds')
 wil_tilde_old_arr = wil_tilde_old_arr.reshape((z_array.size, zbins))
 print(np.allclose(wil_tilde_old_arr, wil_tilde_new_arr, rtol=1e-3))
 
-
-
 assert 1 > 2
 
 
 # ! simpson version, to test
 # def wil_tilde(z, i):  # xxx attention, check carefully
-#     # integrand = lambda z_prime, z, i: n_i(z_prime, i) * (1 - r_tilde(z) / r_tilde(z_prime))
+#     # integrand = lambda z_prime, z, i: n_i(z_prime, i) * (1 - csmlb.r_tilde(z) / csmlb.r_tilde(z_prime))
 #
 #     # populate array with the integrand
 #     integrand_array = np.zeros(z_array.size)
 #     for z_prime_idx, z_prime in enumerate(z_array):
-#         integrand_array[z_prime_idx] = n_i(z_prime, i) * (1 - r_tilde(z) / r_tilde(z_prime))
+#         integrand_array[z_prime_idx] = n_i(z_prime, i) * (1 - csmlb.r_tilde(z) / csmlb.r_tilde(z_prime))
 #
 #     # integrate with simpson's rule
 #     result = simps(integrand_array, z_array)
@@ -305,13 +258,13 @@ assert 1 > 2
 
 
 def wil_noIA_IST(z, i, wil_tilde_array):
-    return (3 / 2) * (H0 / c) * Om0 * (1 + z) * r_tilde(z) * wil_tilde_array
+    return (3 / 2) * (H0 / c) * Om0 * (1 + z) * csmlb.r_tilde(z) * wil_tilde_array
 
 
 ########################################################### IA
 # @njit
 def W_IA(z, i):
-    result = (H0 / c) * n_i(z, i) * E(z)
+    result = (H0 / c) * n_i(z, i) * csmlb.E(z)
     return result
 
 
@@ -334,7 +287,7 @@ def F_IA(z):
 # use formula 23 for Om(z)
 # @njit
 def Om(z):
-    return Om0 * (1 + z) ** 3 / E(z) ** 2
+    return Om0 * (1 + z) ** 3 / csmlb.E(z) ** 2
 
 
 # @njit
@@ -392,22 +345,22 @@ def b_new(z):
 
 @njit
 def wig_IST(z, i):  # with n_bar normalisation (anyway, n_bar = 1 more or less)
-    return b(i) * (n_i(z, i) / n_bar[i]) * H0 * E(z) / c
+    return b(i) * (n_i(z, i) / n_bar[i]) * H0 * csmlb.E(z) / c
 
 
 # @njit
 def wig_multiBinBias_IST(z, i):  # with n_bar normalisation (anyway, n_bar = 1 more or less)
     # print(b_new(z), z) # debug
-    return b_new(z) * (n_i(z, i) / n_bar[i]) * H0 * E(z) / c
+    return b_new(z) * (n_i(z, i) / n_bar[i]) * H0 * csmlb.E(z) / c
 
 
 @njit
 def wig_noBias_IST(z, i):  # with n_bar normalisation (anyway, n_bar = 1 more or less) ooo
-    return (n_i(z, i) / n_bar[i]) * H0 * E(z) / c
+    return (n_i(z, i) / n_bar[i]) * H0 * csmlb.E(z) / c
 
 
 # def wig_IST(z,i): # without n_bar normalisation
-#     return b(i) * n_i(z,i) *H0*E(z)/c
+#     return b(i) * n_i(z,i) *H0*csmlb.E(z)/c
 # xxx I'm already dividing by c!
 
 ###################################################
@@ -452,7 +405,7 @@ z = np.linspace(z_min, z_max, zpoints)
 
 z_array = np.linspace(z_min, z_max, zpoints)
 # using Sylvain's z
-# z = np.genfromtxt("C:/Users/dscio/Documents/Lavoro/Programmi/SSC_comparison/data/windows_sylvain/nz_source/z.txt")
+# z = np.genfromtxt("C:/Users/dscio/Documents/Lavoro/Programmi/SSC_comparison/input/windows_sylvain/nz_source/z.txt")
 
 
 ############ WiG

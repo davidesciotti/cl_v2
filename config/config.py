@@ -12,7 +12,7 @@ from matplotlib.cm import get_cmap
 project_path = Path.cwd().parent.parent.parent.parent.parent
 job_path = Path.cwd().parent.parent.parent
 
-sys.path.append(str(project_path / 'lib'))
+sys.path.append(str(project_path / 'my_lib'))
 import my_module as mm
 
 matplotlib.use('Qt5Agg')
@@ -33,6 +33,7 @@ markersize = 10
 
 start_time = time.perf_counter()
 
+
 c = 299792.458  # km/s
 H0 = 67  # km/(s*Mpc)
 
@@ -41,6 +42,10 @@ Ode0 = 0.68
 Ob0 = 0.05
 Ox0 = 0
 gamma = 0.55
+w0 = -1.0
+wa = 0.0
+Neff = 3.04
+m_nu = 0.06
 
 z_minus = np.array((0.0010, 0.42, 0.56, 0.68, 0.79, 0.90, 1.02, 1.15, 1.32, 1.58))
 z_plus = np.array((0.42, 0.56, 0.68, 0.79, 0.90, 1.02, 1.15, 1.32, 1.58, 2.50))
