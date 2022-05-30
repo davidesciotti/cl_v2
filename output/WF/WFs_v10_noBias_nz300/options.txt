@@ -1,0 +1,3 @@
+with zcut 
+ with nbar normalization 
+ with bias = 1

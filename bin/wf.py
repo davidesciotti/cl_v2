@@ -5,7 +5,6 @@ from pathlib import Path
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
-from astropy.cosmology import w0waCDM
 from numba import njit
 from scipy.integrate import quad, quad_vec, simpson
 from scipy.interpolate import interp1d, interp2d
@@ -94,21 +93,13 @@ C_IA = cfg.C_IA
 eta_IA = cfg.eta_IA
 beta_IA = cfg.beta_IA
 
-
-
 simps_z_step_size = 1e-4
 
 n_bar = np.genfromtxt("%s/output/n_bar.txt" % project_path)
 lumin_ratio = np.genfromtxt("%s/input/scaledmeanlum-E2Sa_EXTRAPOLATED.txt" % project_path)
 
 
-
 ####################################### function definition
-
-
-
-
-
 
 
 @njit
@@ -131,6 +122,7 @@ def n(z):  # note: if you import n_i(z) this function doesn't get called!
 ################################## niz ##############################################
 
 # choose the cut XXX
+# TODO re-compute and check this!
 # n_i_import = np.genfromtxt("%s/input/Cij-NonLin-eNLA_15gen/niTab-EP10-RB00.dat" %path) # vincenzo (= davide standard, pare)
 # n_i_import = np.genfromtxt(path.parent / "common_data/vincenzo/14may/InputNz/niTab-EP10-RB.dat") # vincenzo, more recent (= davide standard, anzi no!!!!)
 # n_i_import = np.genfromtxt("C:/Users/dscio/Documents/Lavoro/Programmi/Cij_davide/output/WFs_v3_cut/niz_e-19cut.txt") # davide e-20cut
@@ -184,6 +176,17 @@ def wil_tilde_old(z, i):
     return result[0]
 
 
+# partial vectorization
+def wil_tilde_integrand_interm(z_prime, z_array, i):
+    return n_i_new(z_prime, i) * (1 - csmlb.r_tilde(z_array) / csmlb.r_tilde(z_prime))
+
+
+def wil_tilde_interm(z_array, i):
+    # integrate in z_prime, it must be the first argument
+    result = quad_vec(wil_tilde_integrand_interm, z_array, z_max, args=(z_array, i))
+    return result[0]
+
+
 def wil_tilde_integrand_new(z_prime, z, i_array):
     return n_i_new(i_array, z_prime).T * (1 - csmlb.r_tilde(z) / csmlb.r_tilde(z_prime))
 
@@ -193,51 +196,51 @@ def wil_tilde_new(z, i_array):
     return quad_vec(wil_tilde_integrand_new, z, z_max, args=(z, i_array))[0]
 
 
-alpha = np.linspace(0.0, 2.0, num=30)
-
-
-def f(x, alpha):
-    return x ** alpha
-
-
-x0, x1 = 0, 2
-y, err = quad_vec(f, x0, x1, args=(alpha,))
-
-plt.plot(alpha, y)
-plt.xlabel(r"$\alpha$")
-plt.ylabel(r"$\int_{0}^{2} x^\alpha dx$")
-plt.show()
-
 # TEST
 z_test = 0.1
 # res = quad(wil_tilde_integrand_new, z_test, z_max, args=(z_test, 0))
 
-z_array = np.linspace(0.002, 3.9, 3)
+z_array_old = np.linspace(0.002, 3.9, 10)
+z_array = np.linspace(0.002, 3.9, 1_000)
+z_prime_array = z_array.copy()
 
-integrand = np.zeros((z_array.size, z_array.size, zbins))
+# time it
+start = time.perf_counter()
+integrand = np.zeros((z_prime_array.size, z_array.size, zbins))
 for z_idx, z_val in enumerate(z_array):
-    integrand[z_idx, :, :] = wil_tilde_integrand_new(z_array, z_val, zbins_idxs_array).T
+    # output order is: z_prime, i
+    integrand[:, z_idx, :] = wil_tilde_integrand_new(z_prime_array, z_val, zbins_idxs_array).T
+print('integrand with for loop filled in: ', time.perf_counter() - start)
 
 
-def integral(z_idx):
-    return simpson(integrand[z_idx:, :, :], axis=0)
+
+# integrand_old = np.zeros(integrand.shape)
+# for z_prime_idx, z_prime in enumerate(z_prime_array):
+#     for z_idx, z in enumerate(z_array):
+#         for i in range(zbins):
+#             integrand_old[z_prime_idx, z_idx, i] = wil_tilde_integrand_old(z_prime, z, i)
+# print('done')
+
+# np.allclose(integrand, integrand_old, rtol=1e-05)
 
 
-start = time.perf_counter()
-wil_tilde_old_arr = np.asarray([wil_tilde_old(z, i) for z in z_array for i in range(zbins)])
-print('old done in', time.perf_counter() - start, 'seconds')
+wil_tilde_simps = np.asarray([simpson(integrand[z_idx:, z_idx, :], axis=0) for z_idx, _ in enumerate(z_array)])
+print('done')
 
-start = time.perf_counter()
-wil_tilde_new_arr = np.asarray([wil_tilde_new(z, zbins_idxs_array) for z in z_array])
-print('new done in', time.perf_counter() - start, 'seconds')
+# TODO add check, i in niz must be an int, otherwise the function gets interpolated!!
 
-start = time.perf_counter()
-wil_tilde_new_simps = np.asarray([integral(z_idx) for z_idx in range(z_array.size)])
-wil_tilde_new_simps = integral(np.asarray(range(z_array.size)))
-print('simps done in', time.perf_counter() - start, 'seconds')
+# start = time.perf_counter()
+# wil_tilde_old_arr = np.asarray([wil_tilde_old(z, i) for z in z_array_old for i in range(zbins)]).reshape(z_array_old.size, zbins)
+# print('old done in', time.perf_counter() - start, 'seconds')
 
-wil_tilde_old_arr = wil_tilde_old_arr.reshape((z_array.size, zbins))
-print(np.allclose(wil_tilde_old_arr, wil_tilde_new_arr, rtol=1e-3))
+i = 0
+
+wil_tilde_old_arr = np.asarray([wil_tilde_old(z, i) for z in z_array_old])
+
+plt.plot(z_array, wil_tilde_simps[:, i], label='simpson')
+plt.plot(z_array_old, wil_tilde_old_arr, '.-', label='old')
+plt.legend()
+plt.grid()
 
 assert 1 > 2
 
