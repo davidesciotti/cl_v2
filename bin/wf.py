@@ -178,117 +178,30 @@ def wil_tilde_old(z, i):
     return result[0]
 
 
-# version with quad vec, very slow, I don't know why. It is the i_array that is vectorized, because z_prime is integrated over
-def wil_tilde_integrand_new(z_prime, z, i_array):
+def wil_tilde_integrand_vec(z_prime, z, i_array):
+    """
+    vectorized version of wil_tilde_integrand, useful to fill up the computation of the integrand array for the simpson
+    integration
+    """
     return n_i_new(i_array, z_prime).T * (1 - csmlb.r_tilde(z) / csmlb.r_tilde(z_prime))
 
 
-def wil_tilde_new(z, i_array):
-    # integrate in z_prime, it must be the first argument
-    return quad_vec(wil_tilde_integrand_new, z, z_max, args=(z, i_array))[0]
-
-# z = 2.00000000e-03
-# start = time.perf_counter()
-# old = [wil_tilde_old(z, i) for i in range(zbins)]
-# print("old:", time.perf_counter() - start)
-#
-# start = time.perf_counter()
-# new = wil_tilde_new(z, i_array)
-# print("new:", time.perf_counter() - start)
-#
-# start = time.perf_counter()
-# simps = wil_tilde_new(z, i_array)
-# print("simps:", time.perf_counter() - start)
-#
-# assert 1 > 2
-
-# TEST
-z_array_quad = np.linspace(0.002, 3.9, 50)
-z_array = np.linspace(0.002, 3.9, 500)
-# z_array = np.logspace(np.log10(0.002), np.log10(3.9), 10)
-z_prime_array = z_array.copy()
-
-# time it
-start = time.perf_counter()
-integrand = np.zeros((z_prime_array.size, z_array.size, zbins))
-for z_idx, z_val in enumerate(z_array):
-    # output order of wil_tilde_integrand_new is: z_prime, i
-    integrand[:, z_idx, :] = wil_tilde_integrand_new(z_prime_array, z_val, i_array).T
-print('integrand with for loop filled in: ', time.perf_counter() - start)
-
-# for z_idx in range(z_array.size)[::5]:
-#     z_prime_val = z_prime_array[z_idx]
-#     plt.plot(z_array, wil_tilde_integrand_old(z_prime_val, z_array, i=i))
-#     plt.plot(z_array, integrand[z_idx, :, i], '--')
-
-
-# ! compare integrands
-# integrand_old = np.zeros(integrand.shape)
-# for z_prime_idx, z_prime in enumerate(z_prime_array):
-#     for z_idx, z in enumerate(z_array):
-#         for i in range(zbins):
-#             integrand_old[z_prime_idx, z_idx, i] = wil_tilde_integrand_old(z_prime, z, i)
-# print('done')
-
-# np.allclose(integrand, integrand_old, rtol=1e-05)
-
-
-start = time.perf_counter()
-wil_tilde_simps = np.asarray([simpson(integrand[z_idx:, z_idx, :], z_array[z_idx:], axis=0) for z_idx, _ in enumerate(z_array)])
-# wil_tilde_simps = np.asarray([np.trapz(integrand[z_idx:, z_idx, :], axis=0) for z_idx, _ in enumerate(z_array)])
-print('simpson integral done in: ', time.perf_counter() - start)
-
-# with parallel:
-# results_array = np.zeros((z_array.size, zbins))
-# start = time.perf_counter()
-# for z_idx, z in enumerate(z_array):
-#     data = [(z, i) for i in range(zbins)]
-#     with WorkerPool() as pool:
-#         results = pool.map(wil_tilde_old, data, progress_bar=True)
-#     results_array[z_idx, :] = np.asarray(results)
-# print('with parallel computing: ', time.perf_counter() - start)
+# def wil_tilde_new(z, i_array):
+#     # version with quad vec, very slow, I don't know why. It is the i_array that is vectorized, because z_prime is integrated over
+#     return quad_vec(wil_tilde_integrand_vec, z, z_max, args=(z, i_array))[0]
 
 
 # TODO add check, i in niz must be an int, otherwise the function gets interpolated!!
 
-# start = time.perf_counter()
-# wil_tilde_old_arr = np.asarray([wil_tilde_old(z, i) for z in z_array_old for i in range(zbins)]).reshape(z_array_old.size, zbins)
-# print('old done in', time.perf_counter() - start, 'seconds')
-
-i = 0
-
-start = time.perf_counter()
-wil_tilde_old_arr = np.asarray([wil_tilde_old(z, i) for z in z_array_quad])
-print('quad for only one bin done in ', time.perf_counter() - start, 'seconds')
-
-# diff = (wil_tilde_simps[:, i]/wil_tilde_old_arr - 1) * 100
-
-# start = time.perf_counter()
-# assert i_array.dtype == np.dtype('int64')  # otherwise it interpolates!
-# wil_tilde_new_result = np.asarray([wil_tilde_new(z, i_array) for z in z_array_quad])
-# print('quad interm, for all bins done in ', time.perf_counter() - start, 'seconds')
-
-# assert i_array.dtype == np.dtype('int64')  # otherwise it interpolates!
-
-plt.plot(z_array, wil_tilde_simps[:, i], label='simpson')
-plt.plot(z_array_quad, wil_tilde_old_arr, '.-', label='old')
-# plt.plot(z_array_quad, wil_tilde_new_arr[:, i, 0], '.-', label='interm')
-# plt.plot(z_array, diff, '.-', label='perc diff')
-plt.legend()
-plt.grid()
-
-assert 1 > 2
-
-
 
 def wil_noIA_IST(z, i, wil_tilde_array):
-    return (3 / 2) * (H0 / c) * Om0 * (1 + z) * csmlb.r_tilde(z) * wil_tilde_array
+    return ((3 / 2) * (H0 / c) * Om0 * (1 + z) * csmlb.r_tilde(z) * wil_tilde_array.T).T
 
 
 ########################################################### IA
 # @njit
-def W_IA(z, i):
-    result = (H0 / c) * n_i(z, i) * csmlb.E(z)
+def W_IA(z_array, i):
+    result = (H0 / c) * n_i_new(i_array, z_array).T * csmlb.E(z_array)
     return result
 
 
@@ -329,13 +242,13 @@ def D(z):
 #     return (A_IA * C_IA * Om0 * F_IA(z)) / D(z) * W_IA(z, i)
 
 # @njit
-def IA_term(z, i, Dz_arr):
-    return (A_IA * C_IA * Om0 * F_IA(z)) / Dz_arr * W_IA(z, i)
+def IA_term(z_array, i_array, Dz_array):
+    return ((A_IA * C_IA * Om0 * F_IA(z_array)) / Dz_array * W_IA(z_array, i_array)).T
 
 
 # @njit
-def wil_IA_IST(z, i, wil_tilde_array, Dz_array):
-    return wil_noIA_IST(z, i, wil_tilde_array[:, i]) - IA_term(z, i, Dz_array)
+def wil_IA_IST(z_array, i_array, wil_tilde_array, Dz_array):
+    return wil_noIA_IST(z_array, i_array, wil_tilde_array) - IA_term(z_array, i_array, Dz_array)
 
 
 ###################### wig ###########################
@@ -347,7 +260,7 @@ def b(i):
 @njit
 def b_new(z):
     for i in range(zbins):
-        if z_minus[i] <= z and z < z_plus[i]:
+        if z_minus[i] <= z < z_plus[i]:
             return b(i)
         if z > z_plus[-1]:  # max redshift bin
             return b(9)
@@ -368,23 +281,29 @@ def b_new(z):
 
 
 @njit
-def wig_IST(z, i):  # with n_bar normalisation (anyway, n_bar = 1 more or less)
-    return b(i) * (n_i(z, i) / n_bar[i]) * H0 * csmlb.E(z) / c
+def wig_IST(z_array, i):  # with n_bar normalisation (anyway, n_bar = 1 more or less)
+    return b(i) * (n_i_new(i_array, z_array).T / n_bar[i]) * H0 * csmlb.E(z_array) / c
 
 
 # @njit
-def wig_multiBinBias_IST(z, i):  # with n_bar normalisation (anyway, n_bar = 1 more or less)
+def wig_multiBinBias_IST_old(z_array, i):  # with n_bar normalisation (anyway, n_bar = 1 more or less)
     # print(b_new(z), z) # debug
-    return b_new(z) * (n_i(z, i) / n_bar[i]) * H0 * csmlb.E(z) / c
+    return b_new(z_array) * (n_i_new(i_array, z_array).T / n_bar[i]) * H0 * csmlb.E(z_array) / c
+
+
+# vectorized version
+def wig_multiBinBias_IST(z_array, i_array):  # with n_bar normalisation (anyway, n_bar = 1 more or less)
+    result = bz_array * (n_i_new(i_array, z_array) / n_bar[i_array]).T * H0 * csmlb.E(z_array) / c
+    return result.T
 
 
 @njit
-def wig_noBias_IST(z, i):  # with n_bar normalisation (anyway, n_bar = 1 more or less) ooo
-    return (n_i(z, i) / n_bar[i]) * H0 * csmlb.E(z) / c
+def wig_noBias_IST(z_array, i):  # with n_bar normalisation (anyway, n_bar = 1 more or less) ooo
+    return (n_i_new(i_array, z_array).T / n_bar[i]) * H0 * csmlb.E(z_array) / c
 
 
-# def wig_IST(z,i): # without n_bar normalisation
-#     return b(i) * n_i(z,i) *H0*csmlb.E(z)/c
+# def wig_IST(z_array,i): # without n_bar normalisation
+#     return b(i) * n_i_new(z_array, i_array).T *H0*csmlb.E(z_array)/c
 # xxx I'm already dividing by c!
 
 ###################################################
@@ -423,62 +342,53 @@ def save(array, name):
 ###############################################################################
 
 ########################### computing and saving the functions
-zpoints = 100
 
-z = np.linspace(z_min, z_max, zpoints)
 
-z_array = np.linspace(z_min, z_max, zpoints)
 # using Sylvain's z
 # z = np.genfromtxt("C:/Users/dscio/Documents/Lavoro/Programmi/SSC_comparison/input/windows_sylvain/nz_source/z.txt")
 
 
-############ WiG
+# COMPUTE KERNELS
+zpoints = 10_000
+zpoints_simps = 1_000
+z_array = np.linspace(z_min, z_max, zpoints)
+z_prime_array = np.linspace(z_min, z_max, zpoints_simps)
 
-# array_appoggio = compute_2D(wig_IST, z)
-# name = f"wig_davide_IST_nz{zsteps}" 
-# save(array_appoggio, name)
-# print("wig_IST DONE")
-
-
-# array_appoggio = compute_2D(wig_noBias_IST, z)
-# name = f"wig_davide_noBias_IST_nz{zsteps}" 
-# save(array_appoggio, name)
-# print("wig_noBias_IST DONE")
-
-
-array_appoggio = compute_2D(wig_multiBinBias_IST, z)
-name = f"wig_davide_multiBinBias_IST_nz{zpoints}"
-save(array_appoggio, name)
-print("wig_multiBinBias_IST DONE")
-
-############ WiL
-
-# array_appoggio = compute_2D(wil_noIA_IST, z)
-# name = f"wil_davide_noIA_IST_nz{zsteps}" 
-# save(array_appoggio, name)
-# print("wil_noIA_IST DONE")
-
-print('precomputing arrays un-vectorizable quantities (which use quad integration)')
-start = time.perf_counter()
+print('precomputing arrays')
 Dz_array = np.asarray([D(z) for z in z_array])
-print('Dz_array done in ', time.perf_counter() - start, 'seconds')
+bz_array = np.asarray([b_new(z) for z in z_array])
 
-i_array = np.asarray(range(zbins))
+# fill simpson integrand
 start = time.perf_counter()
-wil_tilde_array = np.asarray([wil_tilde(z, i) for z in z_array for i in range(zbins)])
-wil_tilde_array = np.asarray([wil_tilde(z, i_array) for z in z_array])
-print('wil_tilde_array done in ', time.perf_counter() - start, 'seconds')
+integrand = np.zeros((z_prime_array.size, z_array.size, zbins))
+for z_idx, z_val in enumerate(z_array):
+    # output order of wil_tilde_integrand_vec is: z_prime, i
+    integrand[:, z_idx, :] = wil_tilde_integrand_vec(z_prime_array, z_val, i_array).T
+print('integrand wil_tilde_integrand with for loop filled in: ', time.perf_counter() - start)
 
-# TODO vectorize i...?
-wil_IA_IST_arr = wil_IA_IST(z_array, 0, wil_tilde_array, Dz_array)
+start = time.perf_counter()
+wil_tilde_array = np.zeros((z_array.size, zbins))
+for z_idx, z_val in enumerate(z_array):
+    # take the closest value to the desired z - less than 0.1% difference with the desired z
+    z_prime_idx = np.argmin(np.abs(z_prime_array - z_val))
+    wil_tilde_array[z_idx, :] = simpson(integrand[z_prime_idx:, z_idx, :], z_prime_array[z_prime_idx:], axis=0)
+print('simpson integral done in: ', time.perf_counter() - start)
+
+wig_IST_arr = wig_multiBinBias_IST(z_array, i_array)
+wil_IA_IST_arr = wil_IA_IST(z_array, i_array, wil_tilde_array, Dz_array)
+
+for i in range(zbins):
+    plt.plot(z_array, wil_IA_IST_arr[:, i], label=f"wil i={i}")
+    # plt.plot(z_array, wig_IST_arr[:, i], label=f"wig i={i}")
+plt.legend()
+plt.show()
+
 
 assert 1 > 2
 
 start = time.perf_counter()
-array_appoggio = compute_2D(wil_IA_IST, z)
-name = f"wil_davide_IA_IST_nz{zpoints}_bia{beta_IA:.2f}"
-# save(array_appoggio, name)
-print("wil_IA_IST DONE in %.2f seconds" % (time.perf_counter() - start))
+
+
 
 ########## others
 # array_appoggio = compute_1D(L_ratio, z)
