@@ -141,12 +141,12 @@ def n_i_old(z, i):
 
 
 z_values_from_nz = n_i_import[:, 0]
-zbins_idxs_array = np.asarray(range(zbins))
+i_array = np.asarray(range(zbins))
 n_i_import_cpy = n_i_import.copy()[:, 1:]  # remove redshift column
 
 # note: this is NOT an interpolation in i, which are just the bin indices and will NOT differ from the values 0, 1, 2
 # ... 9. The purpose is just to have a 2D vectorized callable.
-n_i_new = interp2d(zbins_idxs_array, z_values_from_nz, n_i_import_cpy, kind="linear")
+n_i_new = interp2d(i_array, z_values_from_nz, n_i_import_cpy, kind="linear")
 
 
 # note: the normalization of n(z) should be unimportant, here I compute a ratio
@@ -166,34 +166,19 @@ n_i_new = interp2d(zbins_idxs_array, z_values_from_nz, n_i_import_cpy, kind="lin
 
 ################################## end niz ##############################################
 
+
 # @njit
 def wil_tilde_integrand_old(z_prime, z, i):
     return n_i_old(z_prime, i) * (1 - csmlb.r_tilde(z) / csmlb.r_tilde(z_prime))
+
+
 def wil_tilde_old(z, i):
     # integrate in z_prime, it must be the first argument
     result = quad(wil_tilde_integrand_old, z, z_max, args=(z, i))
     return result[0]
 
-def wil_tilde_integrand_interm(z_prime, z, i_array):
-    return n_i_new(z_prime, i_array) * (1 - csmlb.r_tilde(z) / csmlb.r_tilde(z_prime))
 
-def wil_tilde_interm(z, i):
-    # integrate in z_prime, it must be the first argument
-    result = quad(wil_tilde_integrand_old, z, z_max, args=(z, i_array))
-    return result[0]
-
-
-# partial vectorization
-def wil_tilde_integrand_interm(z_prime, z_array, i):
-    return n_i_new(z_prime, i) * (1 - csmlb.r_tilde(z_array) / csmlb.r_tilde(z_prime))
-
-
-def wil_tilde_interm(z_array, i):
-    # integrate in z_prime, it must be the first argument
-    result = quad_vec(wil_tilde_integrand_interm, z_array, z_max, args=(z_array, i))
-    return result[0]
-
-
+# version with quad vec, very slow, I don't know why. It is the i_array that is vectorized, because z_prime is integrated over
 def wil_tilde_integrand_new(z_prime, z, i_array):
     return n_i_new(i_array, z_prime).T * (1 - csmlb.r_tilde(z) / csmlb.r_tilde(z_prime))
 
@@ -202,14 +187,24 @@ def wil_tilde_new(z, i_array):
     # integrate in z_prime, it must be the first argument
     return quad_vec(wil_tilde_integrand_new, z, z_max, args=(z, i_array))[0]
 
-
+# z = 2.00000000e-03
+# start = time.perf_counter()
+# old = [wil_tilde_old(z, i) for i in range(zbins)]
+# print("old:", time.perf_counter() - start)
+#
+# start = time.perf_counter()
+# new = wil_tilde_new(z, i_array)
+# print("new:", time.perf_counter() - start)
+#
+# start = time.perf_counter()
+# simps = wil_tilde_new(z, i_array)
+# print("simps:", time.perf_counter() - start)
+#
+# assert 1 > 2
 
 # TEST
-z_test = 0.1
-# res = quad(wil_tilde_integrand_new, z_test, z_max, args=(z_test, 0))
-
-z_array_old = np.linspace(0.002, 3.9, 5_000)
-z_array = z_array_old.copy()
+z_array_quad = np.linspace(0.002, 3.9, 50)
+z_array = np.linspace(0.002, 3.9, 500)
 # z_array = np.logspace(np.log10(0.002), np.log10(3.9), 10)
 z_prime_array = z_array.copy()
 
@@ -217,15 +212,17 @@ z_prime_array = z_array.copy()
 start = time.perf_counter()
 integrand = np.zeros((z_prime_array.size, z_array.size, zbins))
 for z_idx, z_val in enumerate(z_array):
-    # output order is: z_prime, i
-    integrand[:, z_idx, :] = wil_tilde_integrand_new(z_prime_array, z_val, zbins_idxs_array).T
+    # output order of wil_tilde_integrand_new is: z_prime, i
+    integrand[:, z_idx, :] = wil_tilde_integrand_new(z_prime_array, z_val, i_array).T
 print('integrand with for loop filled in: ', time.perf_counter() - start)
 
 # for z_idx in range(z_array.size)[::5]:
 #     z_prime_val = z_prime_array[z_idx]
-#     plt.plot(z_array, wil_tilde_integrand_old(z_prime_val, z_array, i=0))
-#     plt.plot(z_array, integrand[z_idx, :, 0], '--')
+#     plt.plot(z_array, wil_tilde_integrand_old(z_prime_val, z_array, i=i))
+#     plt.plot(z_array, integrand[z_idx, :, i], '--')
 
+
+# ! compare integrands
 # integrand_old = np.zeros(integrand.shape)
 # for z_prime_idx, z_prime in enumerate(z_prime_array):
 #     for z_idx, z in enumerate(z_array):
@@ -237,20 +234,19 @@ print('integrand with for loop filled in: ', time.perf_counter() - start)
 
 
 start = time.perf_counter()
-wil_tilde_simps = np.asarray([simpson(integrand[z_idx:, z_idx, :], axis=0) for z_idx, _ in enumerate(z_array)])
+wil_tilde_simps = np.asarray([simpson(integrand[z_idx:, z_idx, :], z_array[z_idx:], axis=0) for z_idx, _ in enumerate(z_array)])
+# wil_tilde_simps = np.asarray([np.trapz(integrand[z_idx:, z_idx, :], axis=0) for z_idx, _ in enumerate(z_array)])
 print('simpson integral done in: ', time.perf_counter() - start)
 
 # with parallel:
-results_array = np.zeros((z_array.size, zbins))
-start = time.perf_counter()
-for z_idx, z in enumerate(z_array):
-    data = [(z, i) for i in range(zbins)]
-    with WorkerPool(n_jobs=10) as pool:
-        results = pool.map(wil_tilde_old, data, progress_bar=True)
-    results_array[z_idx, :] = np.asarray(results)
-print('with parallel computing: ', time.perf_counter() - start)
-
-
+# results_array = np.zeros((z_array.size, zbins))
+# start = time.perf_counter()
+# for z_idx, z in enumerate(z_array):
+#     data = [(z, i) for i in range(zbins)]
+#     with WorkerPool() as pool:
+#         results = pool.map(wil_tilde_old, data, progress_bar=True)
+#     results_array[z_idx, :] = np.asarray(results)
+# print('with parallel computing: ', time.perf_counter() - start)
 
 
 # TODO add check, i in niz must be an int, otherwise the function gets interpolated!!
@@ -262,38 +258,27 @@ print('with parallel computing: ', time.perf_counter() - start)
 i = 0
 
 start = time.perf_counter()
-wil_tilde_old_arr = np.asarray([wil_tilde_old(z, i) for z in z_array_old])
+wil_tilde_old_arr = np.asarray([wil_tilde_old(z, i) for z in z_array_quad])
 print('quad for only one bin done in ', time.perf_counter() - start, 'seconds')
 
-i_array = np.arange(zbins)
-start = time.perf_counter()
-assert i_array.dtype == np.dtype('int64')  # otherwise it interpolates!
-wil_tilde_interm_arr = np.asarray([wil_tilde_interm(z, i_array) for z in z_array_old])
-print('quad interm, for all bins done in ', time.perf_counter() - start, 'seconds')
+# diff = (wil_tilde_simps[:, i]/wil_tilde_old_arr - 1) * 100
+
+# start = time.perf_counter()
+# assert i_array.dtype == np.dtype('int64')  # otherwise it interpolates!
+# wil_tilde_new_result = np.asarray([wil_tilde_new(z, i_array) for z in z_array_quad])
+# print('quad interm, for all bins done in ', time.perf_counter() - start, 'seconds')
+
+# assert i_array.dtype == np.dtype('int64')  # otherwise it interpolates!
 
 plt.plot(z_array, wil_tilde_simps[:, i], label='simpson')
-plt.plot(z_array_old, wil_tilde_old_arr, '.-', label='old')
-plt.plot(z_array_old, wil_tilde_interm_arr[:, i, 0], '.-', label='interm')
-plt.plot(z_array, results_array[:, i], '--', label='parallel')
+plt.plot(z_array_quad, wil_tilde_old_arr, '.-', label='old')
+# plt.plot(z_array_quad, wil_tilde_new_arr[:, i, 0], '.-', label='interm')
+# plt.plot(z_array, diff, '.-', label='perc diff')
 plt.legend()
 plt.grid()
 
 assert 1 > 2
 
-
-# ! simpson version, to test
-# def wil_tilde(z, i):  # xxx attention, check carefully
-#     # integrand = lambda z_prime, z, i: n_i(z_prime, i) * (1 - csmlb.r_tilde(z) / csmlb.r_tilde(z_prime))
-#
-#     # populate array with the integrand
-#     integrand_array = np.zeros(z_array.size)
-#     for z_prime_idx, z_prime in enumerate(z_array):
-#         integrand_array[z_prime_idx] = n_i(z_prime, i) * (1 - csmlb.r_tilde(z) / csmlb.r_tilde(z_prime))
-#
-#     # integrate with simpson's rule
-#     result = simps(integrand_array, z_array)
-#
-#     return result
 
 
 def wil_noIA_IST(z, i, wil_tilde_array):
