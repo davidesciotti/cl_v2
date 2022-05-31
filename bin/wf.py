@@ -36,10 +36,10 @@ markersize = 10
 ####################### ########################################################
 
 
-start = time.perf_counter()
+script_start = time.perf_counter()
 
 WFs_input_folder = "WFs_v7_zcut_noNormalization"
-WFs_output_folder = "WFs_v16_eNLA_may22"
+WFs_output_folder = f"WFs_v16_{cfg.IA_model}_may22"
 
 # saving the options (ooo) in a text file:
 with open("%s/output/WF/%s/options.txt" % (project_path, WFs_output_folder), "w") as text_file:
@@ -123,7 +123,6 @@ def n(z):  # note: if you import n_i(z) this function doesn't get called!
 ################################## niz ##############################################
 
 # choose the cut XXX
-# TODO re-compute and check this!
 # n_i_import = np.genfromtxt("%s/input/Cij-NonLin-eNLA_15gen/niTab-EP10-RB00.dat" %path) # vincenzo (= davide standard, pare)
 # n_i_import = np.genfromtxt(path.parent / "common_data/vincenzo/14may/InputNz/niTab-EP10-RB.dat") # vincenzo, more recent (= davide standard, anzi no!!!!)
 # n_i_import = np.genfromtxt("C:/Users/dscio/Documents/Lavoro/Programmi/Cij_davide/output/WFs_v3_cut/niz_e-19cut.txt") # davide e-20cut
@@ -189,9 +188,6 @@ def wil_tilde_integrand_vec(z_prime, z, i_array):
 # def wil_tilde_new(z, i_array):
 #     # version with quad vec, very slow, I don't know why. It is the i_array that is vectorized, because z_prime is integrated over
 #     return quad_vec(wil_tilde_integrand_vec, z, z_max, args=(z, i_array))[0]
-
-
-# TODO add check, i in niz must be an int, otherwise the function gets interpolated!!
 
 
 def wil_noIA_IST(z, i, wil_tilde_array):
@@ -306,51 +302,21 @@ def wig_noBias_IST(z_array, i):  # with n_bar normalisation (anyway, n_bar = 1 m
 #     return b(i) * n_i_new(z_array, i_array).T *H0*csmlb.E(z_array)/c
 # xxx I'm already dividing by c!
 
-###################################################
-
-
-def compute_1D(function, z_array_toInsert):
-    array = np.zeros((z.shape[0], 2))  # it has only one column apart from z
-    array[:, 0] = z_array_toInsert
-    array[:, 1] = np.asarray([function(zi) for zi in z])
-    return array
-
-
-# @jit(nopython = True)
-def compute_2D(function, z_array_toInsert):
-    array = np.zeros((z.shape[0], zbins + 1))
-    array[:, 0] = z_array_toInsert
-
-    for i in range(zbins):
-        start = time.perf_counter()
-        array[:, i + 1] = np.asarray([function(zi, i) for zi in z])
-        # alternative
-        # array[:,i+1] = np.vectorize(function)(z,i)
-
-        end = time.perf_counter()
-        print(f"debug: I'm working on column number {i}, took {(end - start):.2f} seconds")
-
-    return array
-
-
-def save(array, name):
-    np.savetxt(f"{project_path}/output/WF/{WFs_output_folder}/{name}.txt", array)
-
-
-###############################################################################
-###################### END OF FUNCTION DEFINITION #############################
-###############################################################################
-
-########################### computing and saving the functions
+########################################################################################################################
+########################################################################################################################
+########################################################################################################################
 
 
 # using Sylvain's z
 # z = np.genfromtxt("C:/Users/dscio/Documents/Lavoro/Programmi/SSC_comparison/input/windows_sylvain/nz_source/z.txt")
 
+# TODO add check on i_array, i in niz must be an int, otherwise the function gets interpolated!!
+# TODO re-compute and check n_i(z), maybe compute it with scipy.special.erf
+
 
 # COMPUTE KERNELS
 zpoints = 10_000
-zpoints_simps = 1_000
+zpoints_simps = 10_000
 z_array = np.linspace(z_min, z_max, zpoints)
 z_prime_array = np.linspace(z_min, z_max, zpoints_simps)
 
@@ -377,80 +343,25 @@ print('simpson integral done in: ', time.perf_counter() - start)
 wig_IST_arr = wig_multiBinBias_IST(z_array, i_array)
 wil_IA_IST_arr = wil_IA_IST(z_array, i_array, wil_tilde_array, Dz_array)
 
+plt.figure()
 for i in range(zbins):
     plt.plot(z_array, wil_IA_IST_arr[:, i], label=f"wil i={i}")
-    # plt.plot(z_array, wig_IST_arr[:, i], label=f"wig i={i}")
+plt.legend()
+plt.show()
+
+plt.figure()
+for i in range(zbins):
+    plt.plot(z_array, wig_IST_arr[:, i], label=f"wig i={i}")
 plt.legend()
 plt.show()
 
 
-assert 1 > 2
+# insert z array values in the 0-th column
+wil_IA_IST_arr = np.insert(wil_IA_IST_arr, 0, z_array, axis=1)
+wig_IST_arr = np.insert(wig_IST_arr, 0, z_array, axis=1)
 
-start = time.perf_counter()
 
+np.save(project_path / f'output/WF/{WFs_output_folder}/wil_IA_IST_nz{zpoints}.npy', wil_IA_IST_arr)
+np.save(project_path / f'output/WF/{WFs_output_folder}/wig_IST_nz{zpoints}.npy', wig_IST_arr)
 
-
-########## others
-# array_appoggio = compute_1D(L_ratio, z)
-# np.savetxt("%s/output\%s/L_ratio.txt" %(path, WFs_output_folder), array_appoggio)
-# print("L_ratio DONE")
-# array_appoggio = compute_2D(n_i, z)
-# np.savetxt("%s/output\%s/niz_e-19cut.txt" %(path, WFs_output_folder), array_appoggio)
-# print("niz DONE")
-# the ones I need to send to Sylvain:
-# array_appoggio = compute_2D(W_IA, z)
-# save(array_appoggio, "W_IA")
-# print("W_IA DONE")
-# array_appoggio = compute_2D(IA_term, z)
-# save(array_appoggio, "IA_term")
-# print("IA_term DONE")    
-# array_appoggio = compute_2D(wil_tilde, z)
-# save(array_appoggio, "wil_tilde")
-# print("wil_tilde DONE")
-# compute and save niz, discard 
-# array_appoggio = compute_2D(n_i, z)
-# save(array_appoggio, "niz")
-# print("niz DONE")
-
-print("the script took %i seconds to run" % (time.perf_counter() - start))
-
-# TODO IA DEBUGGING
-# wil_davide = np.genfromtxt("%s\output\%s\wil.txt" %(path, WFs_output_folder))
-# wil_tot_davide = np.genfromtxt("%s\output\%s\wil_tot.txt" %(path, WFs_output_folder))
-# IA_term_array = compute_2D(IA_term, z)
-# W_IA_array = compute_2D(W_IA, z)
-# diff = np.abs(wil_davide - wil_tot_davide) / wil_davide * 100
-
-# column = 5
-# plt.plot(wil_davide[:,0], wil_davide[:,column + 1], label="wil")
-# plt.plot(wil_tot_davide[:,0], wil_tot_davide[:,column + 1], label="wil_tot = wil - IA_term")
-# plt.plot(IA_term_array[:,0], IA_term_array[:,column + 1], label="IA_term")
-# # plt.plot(z, diff[:,column + 1], label="diff")
-# # plt.hlines(5, 0, 4, "red", label = "5 %%")
-# # plt.plot(W_IA_array[:,0], W_IA_array[:,column + 1], label="W_IA_array")
-# plt.legend(prop={'size': 14})
-# plt.title("$W_i^L(z)$, i = %i, IA vs non-IA" % column)
-# plt.ylabel("$W_i^L(z)$")
-# plt.xlabel("$z$")
-# plt.grid()
-# plt.tight_layout()
-# plt.yscale("log")
-
-# fig, axes = plt.subplots(2, 1, figsize=(10,4))
-# axes[0].plot(wil_davide[:,0], wil_davide[:,column + 1], label="wil")
-# axes[0].plot(wil_tot_davide[:,0], wil_tot_davide[:,column + 1], label="wil_tot")
-# axes[0].plot(W_IA_array[:,0], W_IA_array[:,column + 1], label="W_IA_array")
-# axes[0].set_title("Normal scale")
-# axes[0].legend()
-# plt.xlabel("$z$")
-# plt.ylabel("WiL")
-
-# axes[1].plot(wil_davide[:,0], wil_davide[:,column + 1], label="wil")
-# axes[1].plot(wil_tot_davide[:,0], wil_tot_davide[:,column + 1], label="wil_tot")
-# axes[1].plot(W_IA_array[:,0], W_IA_array[:,column + 1], label="W_IA_array")
-# axes[1].set_yscale("log") 
-# axes[1].set_title("Logarithmic scale (y)")
-# axes[1].legend()
-# plt.xlabel("$z$")
-# plt.ylabel("WiL")
-# plt.tight_layout()
+print("the script took %.2f seconds to run" % (time.perf_counter() - script_start))

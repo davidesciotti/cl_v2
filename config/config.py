@@ -29,6 +29,8 @@ markersize = 10
 
 start_time = time.perf_counter()
 
+IA_model = 'eNLA'
+
 c = 299792.458  # km/s
 H0 = 67  # km/(s*Mpc)
 
@@ -66,7 +68,12 @@ z_0 = z_m / np.sqrt(2)
 A_IA = 1.72
 C_IA = 0.0134
 eta_IA = -0.41
-beta_IA = 2.17
-# beta_IA = 0.0
+
+if IA_model == 'eNLA':
+    beta_IA = 2.17
+elif IA_model == 'zNLA':
+    beta_IA = 0.0
+
+
 
 zbins = 10
