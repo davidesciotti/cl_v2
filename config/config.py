@@ -30,9 +30,7 @@ markersize = 10
 start_time = time.perf_counter()
 
 IA_model = 'eNLA'
-
-c = 299792.458  # km/s
-H0 = 67  # km/(s*Mpc)
+useIA = True
 
 Om0 = 0.32
 Ode0 = 0.68
@@ -43,6 +41,12 @@ w0 = -1.0
 wa = 0.0
 Neff = 3.04
 m_nu = 0.06
+h = 0.67
+n_s = 0.96
+sigma_8 = 0.816
+
+c = 299792.458  # km/s
+H0 = h * 100  # km/(s*Mpc)
 
 z_minus = np.array((0.0010, 0.42, 0.56, 0.68, 0.79, 0.90, 1.02, 1.15, 1.32, 1.58))
 z_plus = np.array((0.42, 0.56, 0.68, 0.79, 0.90, 1.02, 1.15, 1.32, 1.58, 2.50))
@@ -74,6 +78,13 @@ if IA_model == 'eNLA':
 elif IA_model == 'zNLA':
     beta_IA = 0.0
 
-
-
 zbins = 10
+
+
+# cl settings
+nbl = 30
+whos_wf = 'vincenzo'
+znum_cl = 500
+units = "1/Mpc"
+
+

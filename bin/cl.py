@@ -8,80 +8,84 @@ from numba import jit
 import sys
 
 # get project directory
-path = Path.cwd().parent.parent
+project_path = Path.cwd().parent
+path_SSC = Path.cwd().parent.parent / "SSC_restructured_v2"
 
-sys.path.append(str(path.parent / 'my_module'))
-import my_module as mm
+sys.path.append(str(project_path))
+sys.path.append(str(Path.cwd().parent.parent))
 
-path = "/Users/davide/Documents/Lavoro/Programmi/Cij_davide"
-path_SSC = "/Users/davide/Documents/Lavoro/Programmi/SSC_comparison"
+import SSC_restructured_v2.lib.my_module as mm
+import config.config as cfg
+import lib.cosmo_lib as csmlb
 
-start = time.time()
+script_start = time.perf_counter()
 
-c = 299792.458  # km/s
-H0 = 67  # km/(s*Mpc)
-Om0 = 0.32
-Ode0 = 0.68
-Ox0 = 0
+H0 = cfg.H0
+c = cfg.c
+Om0 = cfg.Om0
+Ode0 = cfg.Ode0
+Ox0 = cfg.Ox0
+w0 = cfg.w0
+wa = cfg.wa
+Neff = cfg.Neff
+m_nu = cfg.m_nu
+Ob0 = cfg.Ob0
 
-z_minus = np.array((0.0010, 0.42, 0.56, 0.68, 0.79, 0.90, 1.02, 1.15, 1.32, 1.58))
-z_plus = np.array((0.42, 0.56, 0.68, 0.79, 0.90, 1.02, 1.15, 1.32, 1.58, 2.50))
+z_minus = cfg.z_minus
+z_plus = cfg.z_plus
 
-z_mean = (z_plus + z_minus) / 2
-z_min = z_minus[0]
-z_max = z_plus[9]
-# xxx is z_max = 4 to be used everywhere?
-# z_max   = 4 # XXX this has been removed 
+z_mean = cfg.z_mean
+z_min = cfg.z_min
+z_max = cfg.z_max
 
-zbins = 10
-nbl = 30
+zbins = cfg.zbins
+nbl = cfg.nbl
 
-h = 0.67
+h = cfg.h
 
 zsteps = 303
 # z_array = np.linspace(z_min, z_max,   zsteps)
 z_array = np.linspace(0, 2.5, zsteps)  # not ok
 
-k_min = -5.442877
-k_max = 34.03235477928787  # in Mpc**-1
+# TODO check k and z arrays
+k_min = 10 ** (-5.442877)
+k_max = 30  # in Mpc**-1
 k_points = 804
-k_array = np.logspace(k_min, np.log10(k_max), k_points)
+k_array = np.logspace(np.log10(k_min), np.log10(k_max), k_points)
 # TODO fix z_array -> fatto?
+z_array = np.linspace(z_min, z_max, cfg.znum_cl)
 
 
-bias_selector = "newBias"
-IA_flag = "IA"
-units = "1Mpc"
-z_max = 2.5  # XXXX see p.25 of IST paper
-nz = 10000
-Cij_output_folder = f"Cijs_v19_ALL/Cij_WFdavide_{IA_flag}_{bias_selector}_nz{nz}_{units}"  # this needs to be fixed
-wil_import = np.genfromtxt(
-    f"{path_SSC}/data/everyones_WFs/everyones_WF_from_Gdrive/davide/nz{nz}/wil_{IA_flag}_IST_nz{nz}.txt")
-wig_import = np.genfromtxt(
-    f"{path_SSC}/data/everyones_WFs/everyones_WF_from_Gdrive/davide/nz{nz}/wig_IST_nz{nz}.txt")
+if cfg.useIA:
+    IA_flag = "IA"
+elif not cfg.useIA:
+    IA_flag = 'noIA'
 
+units = cfg.units
+
+if units == '1/Mpc':
+    use_h_units = False
+elif units == 'h/Mpc':
+    use_h_units = True
+else:
+    raise ValueError('units must be 1/Mpc or h/Mpc')
+
+# z_max = 2.5  # XXXX see p.25 of IST paper
+nz = 8000
+
+Cij_output_folder = f"cl_v20/Cij_WFdavide_{IA_flag}_nz{nz}_{units}"  # this needs to be fixed
+
+if cfg.whos_wf == 'vincenzo':
+    wil_import = np.genfromtxt(
+        f"{path_SSC}/config/common_data/everyones_WF_from_Gdrive/vincenzo/wil_vincenzo_IA_PySSC_nz8000.dat")
+    wig_import = np.genfromtxt(
+        f"{path_SSC}/config/common_data/everyones_WF_from_Gdrive/vincenzo/wig_vincenzo_PySSC_nz8000.dat")
+else:
+    raise ValueError('whos_wf must be \'vincenzo\'')
+
+z_wf = wig_import[:, 0]
 
 ################### defining the functions
-def E(z):
-    result = np.sqrt(Om0 * (1 + z) ** 3 + Ode0 + Ox0 * (1 + z) ** 2)
-    return result
-
-
-def inv_E(z):
-    result = 1 / np.sqrt(Om0 * (1 + z) ** 3 + Ode0 + Ox0 * (1 + z) ** 2)
-    return result
-
-
-def r(z):
-    # r(z) = c/H0 * int_0*z dz/E(z); I don't include the prefactor c/H0 so as to
-    # have r_tilde(z)
-    result = c / H0 * quad(inv_E, 0, z)[0]  # integrate 1/E(z) from 0 to z
-    return result
-
-
-def k_limber(ell, z):
-    return (ell + 1 / 2) / r(z)
-
 
 # I think the argument names are unimportant, I could have called it k, k_ell
 # or k_limber xxx
@@ -90,31 +94,27 @@ def k_limber(ell, z):
 # PS = np.delete(PS, 0, 1)  # delete first column of PS to adjust the dimensions to (804, 303)
 # PS_transposed = PS.transpose()
 
-PS = np.load(f"/jobs/SSC_comparison/output/Pk/Pk_kind=nonlinear_hunits=True.npy")  # XXX careful of the units
-z_pk = np.load(f"/jobs/SSC_comparison/output/Pk/z_array.npy")  # XXX careful of the units
-k_pk = np.load(f"/jobs/SSC_comparison/output/Pk/k_array_hunits=True.npy")  # XXX careful of the units
+cosmo_classy = csmlb.cosmo_classy
+
+Pk = csmlb.calculate_power(cosmo_classy, z_array, k_array, use_h_units=True, Pk_kind='nonlinear',
+                           argument_type='arrays')
+Pk_interp = interp2d(k_array, z_array, Pk)
 
 
 
-def P(k_ell, z):
-    # order: interp2d(k, z, PS, kind = "linear") first x, then y
-    # is is necessary to transpose, the PS array must have dimensions
-    # [z.ndim, k.ndim]. I have it the other way round. The console says:
-    # ValueError: When on a regular grid with x.size = m and y.size = n,
-    # if z.ndim == 2, then z must have shape (n, m)
-    PS_interp = interp2d(k_pk, z_pk, PS, kind="linear")
-    result_array = PS_interp(k_ell, z)  # z is considered as an array
-    result = result_array.item()  # otherwise it would be a 0d array OK!
-    return result
+assert 1 > 2
+
+
+
 
 
 ############################################### DEBUGGIN'
+
 path_SSC_CMBX = "/jobs/SSC_CMBX"
 ell_LL = np.genfromtxt(f"{path_SSC_CMBX}/misc/notebooks/inputs/ell_values/ell_WL_ellMaxWL5000_nbl{nbl}.txt")
 ell_GG = np.genfromtxt(f"{path_SSC_CMBX}/misc/notebooks/inputs/ell_values/ell_GC_ellMaxGC3000_nbl{nbl}.txt")
 
-
-# XXX fundamental 
+# XXX fundamental
 ell_LL = 10 ** ell_LL
 ell_GG = 10 ** ell_GG
 ell_LG = ell_GG
@@ -129,20 +129,18 @@ PS_vinc = np.genfromtxt(f"{path_SSC_CMBX}/data/vincenzo/Cij-NonLin-eNLA_15gen/Pn
 z_vinc = np.unique(PS_vinc[:, 1])
 
 # PS davide: reimport it to have the first column
-PS = np.genfromtxt(f"{path}/data/Power_Spectrum/Pnl_{units}.txt")  # XXX careful of the units
+Pk = np.genfromtxt(f"{path}/data/Power_Spectrum/Pnl_{units}.txt")  # XXX careful of the units
 
 z_0 = (PS_vinc[:, 1] == 0)  # this is where redshift = 0
 PS_vinc_z0 = PS_vinc[z_0]
 
-plt.plot(np.log10(PS[:, 0]), PS[:, 1])
+plt.plot(np.log10(Pk[:, 0]), Pk[:, 1])
 # 10** because I already take the log scale on the y axis
 plt.plot(PS_vinc_z0[:, 0], 10 ** PS_vinc_z0[:, 2], '--')  # column 2 should be the nonlin PS
 # plt.plot(ell_LL, k_limber_array)
 plt.plot(np.log10(ell_LL), P_array)
 
 plt.yscale("log")
-
-
 
 sys.exit()
 
@@ -178,17 +176,17 @@ for i in range(zbins):
 
 # integrand
 def K_ij_XC(z, i, j):
-    return wil(z, j) * wig(z, i) / (E(z) * r(z) ** 2)
+    return wil(z, j) * wig(z, i) / (csmlb.E(z) * csmlb.r(z) ** 2)
 
 
 def K_ij_GG(z, i, j):
-    return wig(z, j) * wig(z, i) / (E(z) * r(z) ** 2)
+    return wig(z, j) * wig(z, i) / (csmlb.E(z) * csmlb.r(z) ** 2)
 
 
 # integral
 def Cij_LG_partial(i, j, nbin, ell):
     def integrand(z, i, j, ell):
-        return K_ij_XC(z, i, j) * P(k_limber(ell, z), z)
+        return K_ij_XC(z, i, j) * P(csmlb.k_limber(ell, z), z)
 
     result = c / H0 * quad(integrand, z_minus[nbin], z_plus[nbin], args=(i, j, ell))[0]
     return result
@@ -196,7 +194,7 @@ def Cij_LG_partial(i, j, nbin, ell):
 
 def Cij_GG_partial(i, j, nbin, ell):
     def integrand(z, i, j, ell):
-        return K_ij_GG(z, i, j) * P(k_limber(ell, z), z)
+        return K_ij_GG(z, i, j) * P(csmlb.k_limber(ell, z), z)
 
     result = c / H0 * quad(integrand, z_minus[nbin], z_plus[nbin], args=(i, j, ell))[0]
     return result
@@ -220,7 +218,7 @@ def sum_Cij_GG(i, j, ell):
 ###### OLD BIAS ##################
 def Cij_LL_function(i, j, ell):
     def integrand(z, i, j, ell):  # first argument is the integration variable
-        return ((wil(z, i) * wil(z, j)) / (E(z) * r(z) ** 2)) * P(k_limber(ell, z), z)
+        return ((wil(z, i) * wil(z, j)) / (csmlb.E(z) * csmlb.r(z) ** 2)) * P(csmlb.k_limber(ell, z), z)
 
     result = c / H0 * quad(integrand, z_min, 4, args=(i, j, ell))[0]
     # check z_min, z_max xxx
@@ -229,7 +227,7 @@ def Cij_LL_function(i, j, ell):
 
 def Cij_LG_function(i, j, ell):  # xxx GL or LG? OLD BIAS
     def integrand(z, i, j, ell):  # first argument is the integration variable
-        return ((wil(z, i) * wig(z, j)) / (E(z) * r(z) ** 2)) * P(k_limber(ell, z), z)
+        return ((wil(z, i) * wig(z, j)) / (csmlb.E(z) * csmlb.r(z) ** 2)) * P(csmlb.k_limber(ell, z), z)
 
     result = c / H0 * quad(integrand, z_min, 4, args=(i, j, ell))[0]
     return result
@@ -237,7 +235,7 @@ def Cij_LG_function(i, j, ell):  # xxx GL or LG? OLD BIAS
 
 def Cij_GG_function(i, j, ell):  # OLD BIAS
     def integrand(z, i, j, ell):  # first argument is the integration variable
-        return ((wig(z, i) * wig(z, j)) / (E(z) * r(z) ** 2)) * P(k_limber(ell, z), z)
+        return ((wig(z, i) * wig(z, j)) / (csmlb.E(z) * csmlb.r(z) ** 2)) * P(csmlb.k_limber(ell, z), z)
 
     result = c / H0 * quad(integrand, z_min, 4, args=(i, j, ell), full_output=True)[0]
     # xxx maybe you can try with scipy.integrate.romberg
@@ -295,7 +293,7 @@ def compute_Cij(ell_values, Cij_function, symmetric_flag):
         if ell > ell_values[0]:  # the first time k should remain 0
             k = k + 1
         print("k = %i, ell = %f" % (k, ell))
-        print("the program took %i seconds to run" % (time.time() - start))
+        print("the program took %i seconds to run" % (time.time() - script_start))
         for i in range(zbins):
             for j in range(zbins):
                 if symmetric_flag == "yes":
@@ -353,5 +351,4 @@ print("saved")
 # reshape(C_LG_array, 100, "C_LG_2D.txt")
 # reshape(C_GG_array, 55, "C_GG_2D.txt")
 
-winsound.Beep(frequency=440, duration=2000)
-print("the program took %i seconds to run" % (time.time() - start))
+print("the program took %i seconds to run" % (time.time() - script_start))
