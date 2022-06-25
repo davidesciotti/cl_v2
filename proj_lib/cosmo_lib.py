@@ -32,7 +32,7 @@ m_nu = ISTF.extensions['m_nu']
 Oc0 = Om0 - Ob0
 H0 = h * 100
 
-
+cosmo_astropy = w0waCDM(H0=H0, Om0=Om0, Ode0=Ode0, w0=w0, wa=wa, Neff=Neff, m_nu=m_nu, Ob0=Ob0)
 
 cosmo_par_dict = {'Omega_b': Ob0,
                   'Omega_cdm': Oc0,
@@ -43,8 +43,6 @@ cosmo_par_dict = {'Omega_b': Ob0,
                   'z_pk': '0, 0.5, 1, 2, 3',
                   'P_k_max_h/Mpc': 50,
                   'non linear': 'halofit'}
-
-cosmo_astropy = w0waCDM(H0=H0, Om0=Om0, Ode0=Ode0, w0=w0, wa=wa, Neff=Neff, m_nu=m_nu, Ob0=Ob0)
 
 cosmo_classy = Class()
 cosmo_classy.set(cosmo_par_dict)

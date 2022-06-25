@@ -1,21 +1,24 @@
+import matplotlib
 import numpy as np
 from scipy.integrate import quad, dblquad
 from scipy.interpolate import interp1d, interp2d
 import matplotlib.pyplot as plt
+import matplotlib
 import time
 from pathlib import Path
-from numba import jit
+from numba import njit
 import sys
 
 # get project directory
 project_path = Path.cwd().parent
-path_SSC = project_path.parent / "SSC_restructured_v2"
 sys.path.append(str(project_path))
 sys.path.append(str(project_path.parent / 'common_data/common_config'))
-sys.path.append(str(path_SSC))
+sys.path.append(str(project_path.parent / 'SSC_restructured_v2/bins'))
+sys.path.append(str(project_path.parent / 'SSC_restructured_v2/lib'))
 
-# general library
-import lib.my_module as mm
+# from SSC_restructured_v2
+import my_module as mm
+import ell_values_running as ell_utils
 
 # general configuration modules
 import ISTF_fid_params as ISTF
@@ -25,6 +28,10 @@ import mpl_rcParams as mpl_rcParams
 import config.config as cfg
 import proj_lib.cosmo_lib as csmlb
 
+# update plot pars
+rcParams = mpl_rcParams.mpl_rcParams_dict
+plt.rcParams.update(rcParams)
+matplotlib.use('Qt5Agg')
 
 script_start = time.perf_counter()
 
@@ -32,6 +39,16 @@ script_start = time.perf_counter()
 ########################################################################################################################
 ########################################################################################################################
 
+print('XXXXXX RECHECK Ox0 in cosmolib')
+print('XXXXXXXX RECHECK z_mean array (not z_median!)')
+
+# TODO redefine integrals, optimize with simps or stuff
+# TODO import with numpy.interp1d, valid for jitted functios?
+# TODO check k and z arrays
+# TODO fix z_array -> fatto? (this is an old TODO)
+# TODO check z_max = 2.5 or =4?:  # XXXX see p.25 of IST paper
+# TODO rerererererecheck vincenzo's WF and normalize name/shapes of everyone's WF
+# 🐛 could ell values be in log scale? I really don't think so
 
 # set fiducial values and constants
 c = ISTF.constants['c']
@@ -47,17 +64,13 @@ z_mean = (z_plus + z_minus) / 2
 z_min = z_edges[0]
 z_max = z_edges[-1]
 
-
 # configurations
 nbl = cfg.nbl
 units = cfg.units
+z_max_cl = cfg.z_max_cl
 
-if cfg.useIA:
-    IA_flag = "IA"
-elif not cfg.useIA:
-    IA_flag = 'noIA'
-else:
-    raise ValueError('cfg.useIA must be True or False')
+if not cfg.useIA:
+    raise ValueError('cfg.useIA must True for the moment')
 
 # TODO this naming is not the best: use h units means that I use or want them?
 if units == '1/Mpc':
@@ -67,86 +80,35 @@ elif units == 'h/Mpc':
 else:
     raise ValueError('units must be 1/Mpc or h/Mpc')
 
-print('XXXXXX RECHECK Ox0 in cosmolib')
-print('XXXXXXXX RECHECK z_mean array (not z_median!)')
-
-# TODO redefine integrals, optimize with simps or stuff
-# TODO import with numpy.interp1d, valid for jitted functios?
-# TODO check k and z arrays
-# TODO fix z_array -> fatto? (this is an old TODO)
-# TODO check z_max = 2.5 or =4?:  # XXXX see p.25 of IST paper
-# TODO rerererererecheck vincenzo's WF and normalize name/shapes of everyone's WF
-
-
-Cij_output_folder = f"cl_v21/Cij_WF{cfg.whos_wf}_{IA_flag}_nz{cfg.zsteps_cl}_{units}"  # this needs to be fixed
-
 path_WF = project_path.parent / f"common_data/everyones_WF_from_Gdrive/{cfg.whos_wf}"
 if cfg.whos_wf == 'vincenzo':
-    raise ValueError('vincenzos WF seem to have some problem')
-    wil_import = np.genfromtxt(f"{path_WF}/wil_vincenzo_{IA_flag}_PySSC_nz{cfg.nz_WF_import}.dat")
-    wig_import = np.genfromtxt(f"{path_WF}/wig_vincenzo_PySSC_nz{cfg.nz_WF_import}.dat")
+    raise ValueError('vincenzos WF seem to have some problem!')
+    wil_import = np.genfromtxt(f"{path_WF}/wil_vincenzo_{IA_flag}_IST_nz{cfg.nz_WF_import}.dat")
+    wig_import = np.genfromtxt(f"{path_WF}/wig_vincenzo_IST_nz{cfg.nz_WF_import}.dat")
 if cfg.whos_wf == 'marco':
     wil_import = np.load(f"{path_WF}/wil_mar_bia{ISTF.IA_free['beta_IA']}_IST_nz{cfg.nz_WF_import}.npy")
     wig_import = np.load(f"{path_WF}/wig_mar_IST_nz{cfg.nz_WF_import}.npy")
-    z_marco = np.genfromtxt(f"{path_WF}/z_values.txt")
 else:
     # raise ValueError('whos_wf must be "davide", "marco", "vincenzo" or "sylvain"')
     raise ValueError('whos_wf must be "marco", at the moment')
 
+# plot WF to check - they must be IST, not PySSC!
+"""
+for i in range(10):
+    plt.plot(wil_import[:, 0], wil_import[:, i+1], label='wil_import')
+plt.title('wil_import')
 
-def reshape_marcos_WF(WF_import):
-    WF_import_resh = WF_import.copy()
+plt.figure()
+for i in range(10):
+    plt.plot(wig_import[:, 0], wig_import[:, i+1], label='wig_import')
+plt.title('wig_import')
+"""
 
-    # some are not transposed
-    if WF_import_resh.shape != (10000, 10):
-        WF_import_resh = WF_import_resh.T
-
-    # insert z column
-    WF_import_resh = np.insert(WF_import_resh, 0, z_marco, axis=1)
-    return WF_import_resh
-
-# loop over all files and save the reshaped matrices
-wf_dict = dict(mm.get_kv_pairs_npy(path_WF))
-for key in wf_dict.keys():
-    print(key)
-    wf_reshaped = reshape_marcos_WF(wf_dict[key])
-    np.save(f'{path_WF}/new/{key}.npy', wf_reshaped)
-
-wf_dict = dict(mm.get_kv_pairs_npy(f'{path_WF}/new'))
-for key in wf_dict.keys():
-    plt.figure()
-    for i in range(10):
-        plt.plot(wf_dict[key][:, 0], wf_dict[key][:, i+1], label='wil')
-
-
-
-
-
-if cfg.whos_wf == 'marco':
-    for i in range(10):
-        plt.plot(wil_import_resh[:, 0], wil_import_resh[:, i+1], label='wil')
-    plt.title('wil')
-    plt.figure()
-    for i in range(10):
-        plt.plot(wig_import_resh[:, 0], wig_import_resh[:, i+1], label='wig')
-    plt.title('wig')
-
-assert 1 > 2
-
-
-
-
+# just a check on the nz of the WF, not very important
+assert wig_import[:, 0].size == cfg.nz_WF_import, 'the number of z points in the kernels is not the required one'
 
 k_array = np.logspace(np.log10(cfg.k_min), np.log10(cfg.k_max), cfg.k_points)
-z_array = np.linspace(z_min, z_max, cfg.zsteps_cl)
-z_wf = wig_import[:, 0]
-assert wig_import[:, 0] == cfg.nz_WF_import, 'the number of z points in the kernels is not the required one'
-
-
-
-assert 1 > 2
-
-################### defining the functions
+z_array = np.linspace(z_min, z_max_cl, cfg.zsteps_cl)
 
 # I think the argument names are unimportant, I could have called it k, k_ell
 # or k_limber xxx
@@ -159,20 +121,25 @@ cosmo_classy = csmlb.cosmo_classy
 
 Pk = csmlb.calculate_power(cosmo_classy, z_array, k_array, use_h_units=True, Pk_kind='nonlinear',
                            argument_type='arrays')
-Pk_interp = interp2d(k_array, z_array, Pk)
 
-assert 1 > 2
+Pk_interp = interp2d(k_array, z_array, Pk)
 
 ############################################### DEBUGGIN'
 
-path_SSC_CMBX = "/jobs/SSC_CMBX"
-ell_LL = np.genfromtxt(f"{path_SSC_CMBX}/misc/notebooks/inputs/ell_values/ell_WL_ellMaxWL5000_nbl{nbl}.txt")
-ell_GG = np.genfromtxt(f"{path_SSC_CMBX}/misc/notebooks/inputs/ell_values/ell_GC_ellMaxGC3000_nbl{nbl}.txt")
 
-# XXX fundamental
-ell_LL = 10 ** ell_LL
-ell_GG = 10 ** ell_GG
-ell_LG = ell_GG
+ell_cfg_dict_WL = {
+    'nbl': cfg.nbl,
+    'ell_min': cfg.ell_min,
+    'ell_max': cfg.ell_max_WL,
+}
+ell_cfg_dict_GC = ell_cfg_dict_WL.copy()
+ell_cfg_dict_GC['ell_max'] = cfg.ell_max_GC
+
+ell_LL, _ = ell_utils.ISTF_ells(ell_cfg_dict_WL)
+ell_GG, _ = ell_utils.ISTF_ells(ell_cfg_dict_GC)
+ell_LG = ell_GG.copy()
+
+
 
 P_array = [P(k_limber(ell, z=1), z=1) for ell in ell_LL]
 k_limber_array = [k_limber(ell, z=1) for ell in ell_LL]
@@ -197,7 +164,7 @@ plt.plot(np.log10(ell_LL), P_array)
 
 plt.yscale("log")
 
-sys.exit()
+assert 1 > 2
 
 
 ############################################### STOP DEBUGGIN'
@@ -275,7 +242,7 @@ def Cij_LL_function(i, j, ell):
     def integrand(z, i, j, ell):  # first argument is the integration variable
         return ((wil(z, i) * wil(z, j)) / (csmlb.E(z) * csmlb.r(z) ** 2)) * P(csmlb.k_limber(ell, z), z)
 
-    result = c / H0 * quad(integrand, z_min, 4, args=(i, j, ell))[0]
+    result = c / H0 * quad(integrand, z_min, z_max_cl, args=(i, j, ell))[0]
     # check z_min, z_max xxx
     return result
 
@@ -284,7 +251,7 @@ def Cij_LG_function(i, j, ell):  # xxx GL or LG? OLD BIAS
     def integrand(z, i, j, ell):  # first argument is the integration variable
         return ((wil(z, i) * wig(z, j)) / (csmlb.E(z) * csmlb.r(z) ** 2)) * P(csmlb.k_limber(ell, z), z)
 
-    result = c / H0 * quad(integrand, z_min, 4, args=(i, j, ell))[0]
+    result = c / H0 * quad(integrand, z_min, z_max_cl, args=(i, j, ell))[0]
     return result
 
 
@@ -292,7 +259,7 @@ def Cij_GG_function(i, j, ell):  # OLD BIAS
     def integrand(z, i, j, ell):  # first argument is the integration variable
         return ((wig(z, i) * wig(z, j)) / (csmlb.E(z) * csmlb.r(z) ** 2)) * P(csmlb.k_limber(ell, z), z)
 
-    result = c / H0 * quad(integrand, z_min, 4, args=(i, j, ell), full_output=True)[0]
+    result = c / H0 * quad(integrand, z_min, z_max_cl, args=(i, j, ell), full_output=True)[0]
     # xxx maybe you can try with scipy.integrate.romberg
     return result
 
@@ -322,7 +289,7 @@ def reshape(array, npairs, name):
             output_2D[ell, i] = array[ell, ind_probe[i, 0], ind_probe[i, 1]]
 
     # saving it
-    np.savetxt("%s/output/Cij/%s/%s.txt" % (path, Cij_output_folder, name), output_2D)
+    np.savetxt("%s/output/Cij/%s/%s.txt" % (path, cfg.cl_out_folder, name), output_2D)
 
 
 ###############################################################################
@@ -360,7 +327,7 @@ def compute_Cij(ell_values, Cij_function, symmetric_flag):
     return Cij_array
 
 
-@jit(nopython=True)
+@njit
 def fill_symmetric_Cls(Cij_array):
     for k in range(nbl):
         for i in range(zbins):
@@ -397,9 +364,9 @@ C_LL_array = compute_Cij(ell_LL, Cij_LL_function, symmetric_flag="yes")
 # C_GG_array = fill_symmetric_Cls(C_GG_array)
 
 # save
-# np.save("%s/output/Cij/%s/Cij_LL.npy" %(path, Cij_output_folder), C_LL_array)
-# np.save("%s/output/Cij/%s/Cij_LG.npy" %(path, Cij_output_folder), C_LG_array)
-# np.save("%s/output/Cij/%s/Cij_GG.npy" %(path, Cij_output_folder), C_GG_array)
+# np.save("%s/output/Cij/%s/Cij_LL.npy" %(path, cfg.cl_out_folder), C_LL_array)
+# np.save("%s/output/Cij/%s/Cij_LG.npy" %(path, cfg.cl_out_folder), C_LG_array)
+# np.save("%s/output/Cij/%s/Cij_GG.npy" %(path, cfg.cl_out_folder), C_GG_array)
 print("saved")
 ############### reshape to compare with others ##########
 # reshape(C_LL_array, 55, "C_LL_2D.txt")

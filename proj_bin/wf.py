@@ -21,7 +21,7 @@ import config.config as cfg
 import ISTF_fid_params as ISTF
 import mpl_rcParams as mpl_rcParams
 
-# update plot paramseters
+# update plot pars
 rcParams = mpl_rcParams.mpl_rcParams_dict
 plt.rcParams.update(rcParams)
 matplotlib.use('Qt5Agg')
