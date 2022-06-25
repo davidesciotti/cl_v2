@@ -69,6 +69,12 @@ nbl = cfg.nbl
 units = cfg.units
 z_max_cl = cfg.z_max_cl
 
+if units == 'h/Mpc':
+    use_h_units = True
+elif units == '1/Mpc':
+    use_h_units = False
+else: raise ValueError('units must be h/Mpc or 1/Mpc')
+
 if not cfg.useIA:
     raise ValueError('cfg.useIA must True for the moment')
 
@@ -117,6 +123,8 @@ z_array = np.linspace(z_min, z_max_cl, cfg.zsteps_cl)
 # PS = np.delete(PS, 0, 1)  # delete first column of PS to adjust the dimensions to (804, 303)
 # PS_transposed = PS.transpose()
 
+
+# Pk
 cosmo_classy = csmlb.cosmo_classy
 
 Pk = csmlb.calculate_power(cosmo_classy, z_array, k_array, use_h_units=True, Pk_kind='nonlinear',
@@ -124,39 +132,44 @@ Pk = csmlb.calculate_power(cosmo_classy, z_array, k_array, use_h_units=True, Pk_
 
 Pk_interp = interp2d(k_array, z_array, Pk)
 
-############################################### DEBUGGIN'
 
+# ell values
 
+# set the parameters, the functions wants a dict as input
 ell_cfg_dict_WL = {
     'nbl': cfg.nbl,
     'ell_min': cfg.ell_min,
     'ell_max': cfg.ell_max_WL,
 }
+
+# change ell_max for GC
 ell_cfg_dict_GC = ell_cfg_dict_WL.copy()
 ell_cfg_dict_GC['ell_max'] = cfg.ell_max_GC
 
+# compute ells using the function in SSC_restructured_v2
 ell_LL, _ = ell_utils.ISTF_ells(ell_cfg_dict_WL)
 ell_GG, _ = ell_utils.ISTF_ells(ell_cfg_dict_GC)
 ell_LG = ell_GG.copy()
 
+####### check the PS
 
+P_array = [P(csmlb.k_limber(ell, z=1), z=1) for ell in ell_LL]
+k_limber_array = csmlb.k_limber(z=1, ell=ell_LL, cosmo_astropy=csmlb.cosmo_astropy, use_h_units=units)
 
-P_array = [P(k_limber(ell, z=1), z=1) for ell in ell_LL]
-k_limber_array = [k_limber(ell, z=1) for ell in ell_LL]
-
-z_dav = np.genfromtxt("%s/data/Power_Spectrum/z.txt" % path)
+# import Davide
+z_dav = np.genfromtxt(project_path / "input/Power_Spectrum/z.txt")
 
 # PS vincenzo:
 PS_vinc = np.genfromtxt(f"{path_SSC_CMBX}/data/vincenzo/Cij-NonLin-eNLA_15gen/Pnl-TB-LCDM.dat")
 z_vinc = np.unique(PS_vinc[:, 1])
 
 # PS davide: reimport it to have the first column
-Pk = np.genfromtxt(f"{path}/data/Power_Spectrum/Pnl_{units}.txt")  # XXX careful of the units
+Pk_import = np.genfromtxt(project_path / f"input/Power_Spectrum/Pnl_{units}.txt")  # XXX careful of the units
 
 z_0 = (PS_vinc[:, 1] == 0)  # this is where redshift = 0
 PS_vinc_z0 = PS_vinc[z_0]
 
-plt.plot(np.log10(Pk[:, 0]), Pk[:, 1])
+plt.plot(np.log10(Pk_import[:, 0]), Pk_import[:, 1])
 # 10** because I already take the log scale on the y axis
 plt.plot(PS_vinc_z0[:, 0], 10 ** PS_vinc_z0[:, 2], '--')  # column 2 should be the nonlin PS
 # plt.plot(ell_LL, k_limber_array)

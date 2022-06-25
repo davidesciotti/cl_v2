@@ -154,6 +154,9 @@ def calculate_power(cosmo, z_array, k_array, use_h_units=True, Pk_kind='nonlinea
 
 
 def get_external_Pk(whos_Pk='vincenzo', Pk_kind='nonlinear', use_h_units=True):
+
+    assert type(use_h_units) == bool, 'use_h_units must be True or False'
+
     if whos_Pk == 'vincenzo':
         filename = 'PnlFid.dat'
         z_column = 1
@@ -202,6 +205,9 @@ def get_external_Pk(whos_Pk='vincenzo', Pk_kind='nonlinear', use_h_units=True):
 
 
 def k_limber(z, ell, cosmo_astropy, use_h_units):
+
+    assert type(use_h_units) == bool, 'use_h_units must be True or False'
+
     # astropy gives values in Mpc, so I call astropy_comoving_distance to have the correct values in both cases
     comoving_distance = astropy_comoving_distance(z, cosmo_astropy, use_h_units)
     k_ell = (ell + 0.5) / comoving_distance
