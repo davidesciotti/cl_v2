@@ -5,7 +5,6 @@ from pathlib import Path
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
-from mpire import WorkerPool
 from numba import njit
 from scipy.integrate import quad, quad_vec, simpson
 from scipy.interpolate import interp1d, interp2d
@@ -25,6 +24,7 @@ import mpl_rcParams as mpl_rcParams
 # update plot paramseters
 rcParams = mpl_rcParams.mpl_rcParams_dict
 plt.rcParams.update(rcParams)
+matplotlib.use('Qt5Agg')
 
 ###############################################################################
 ###############################################################################
@@ -68,11 +68,11 @@ Ob0 = ISTF.primary['Om_b0']
 gamma = ISTF.extensions['gamma']
 
 z_edges = ISTF.photoz_bins['zbin_edges']
-z_minus = z_edges[:-1]
-z_plus = z_edges[1:]
 z_m = ISTF.photoz_bins['z_median']
 zbins = ISTF.photoz_bins['zbins']
 
+z_minus = z_edges[:-1]
+z_plus = z_edges[1:]
 z_0 = z_m / np.sqrt(2)
 z_mean = (z_plus + z_minus) / 2
 z_min = z_edges[0]
@@ -103,10 +103,9 @@ simps_z_step_size = 1e-4
 n_bar = np.genfromtxt("%s/output/n_bar.txt" % project_path)
 lumin_ratio = np.genfromtxt("%s/input/scaledmeanlum-E2Sa_EXTRAPOLATED.txt" % project_path)
 
-print('RECHECK Ox0 in cosmolib')
-print('RECHECK z_mean')
+print('XXXXXX RECHECK Ox0 in cosmolib')
+print('XXXXXXXX RECHECK z_mean')
 
-assert 1 > 2
 ####################################### function definition
 
 

@@ -9,60 +9,57 @@ import sys
 
 # get project directory
 project_path = Path.cwd().parent
-path_SSC = Path.cwd().parent.parent / "SSC_restructured_v2"
-
+path_SSC = project_path.parent / "SSC_restructured_v2"
 sys.path.append(str(project_path))
-sys.path.append(str(Path.cwd().parent.parent))
+sys.path.append(str(project_path.parent / 'common_data/common_config'))
+sys.path.append(str(path_SSC))
 
-import SSC_restructured_v2.lib.my_module as mm
+# general library
+import lib.my_module as mm
+
+# general configuration modules
+import ISTF_fid_params as ISTF
+import mpl_rcParams as mpl_rcParams
+
+# this project's modules
 import config.config as cfg
-import lib.cosmo_lib as csmlb
+import proj_lib.cosmo_lib as csmlb
+
 
 script_start = time.perf_counter()
 
-H0 = cfg.H0
-c = cfg.c
-Om0 = cfg.Om0
-Ode0 = cfg.Ode0
-Ox0 = cfg.Ox0
-w0 = cfg.w0
-wa = cfg.wa
-Neff = cfg.Neff
-m_nu = cfg.m_nu
-Ob0 = cfg.Ob0
+########################################################################################################################
+########################################################################################################################
+########################################################################################################################
 
-z_minus = cfg.z_minus
-z_plus = cfg.z_plus
 
-z_mean = cfg.z_mean
-z_min = cfg.z_min
-z_max = cfg.z_max
+# set fiducial values and constants
+c = ISTF.constants['c']
+H0 = ISTF.primary['h_0'] * 100
 
-zbins = cfg.zbins
+z_edges = ISTF.photoz_bins['zbin_edges']
+z_m = ISTF.photoz_bins['z_median']
+zbins = ISTF.photoz_bins['zbins']
+
+z_minus = z_edges[:-1]
+z_plus = z_edges[1:]
+z_mean = (z_plus + z_minus) / 2
+z_min = z_edges[0]
+z_max = z_edges[-1]
+
+
+# configurations
 nbl = cfg.nbl
-
-h = cfg.h
-
-zsteps = 303
-# z_array = np.linspace(z_min, z_max,   zsteps)
-z_array = np.linspace(0, 2.5, zsteps)  # not ok
-
-# TODO check k and z arrays
-k_min = 10 ** (-5.442877)
-k_max = 30  # in Mpc**-1
-k_points = 804
-k_array = np.logspace(np.log10(k_min), np.log10(k_max), k_points)
-# TODO fix z_array -> fatto?
-z_array = np.linspace(z_min, z_max, cfg.znum_cl)
-
+units = cfg.units
 
 if cfg.useIA:
     IA_flag = "IA"
 elif not cfg.useIA:
     IA_flag = 'noIA'
+else:
+    raise ValueError('cfg.useIA must be True or False')
 
-units = cfg.units
-
+# TODO this naming is not the best: use h units means that I use or want them?
 if units == '1/Mpc':
     use_h_units = False
 elif units == 'h/Mpc':
@@ -70,20 +67,84 @@ elif units == 'h/Mpc':
 else:
     raise ValueError('units must be 1/Mpc or h/Mpc')
 
-# z_max = 2.5  # XXXX see p.25 of IST paper
-nz = 8000
+print('XXXXXX RECHECK Ox0 in cosmolib')
+print('XXXXXXXX RECHECK z_mean array (not z_median!)')
 
-Cij_output_folder = f"cl_v20/Cij_WFdavide_{IA_flag}_nz{nz}_{units}"  # this needs to be fixed
+# TODO redefine integrals, optimize with simps or stuff
+# TODO import with numpy.interp1d, valid for jitted functios?
+# TODO check k and z arrays
+# TODO fix z_array -> fatto? (this is an old TODO)
+# TODO check z_max = 2.5 or =4?:  # XXXX see p.25 of IST paper
+# TODO rerererererecheck vincenzo's WF and normalize name/shapes of everyone's WF
 
+
+Cij_output_folder = f"cl_v21/Cij_WF{cfg.whos_wf}_{IA_flag}_nz{cfg.zsteps_cl}_{units}"  # this needs to be fixed
+
+path_WF = project_path.parent / f"common_data/everyones_WF_from_Gdrive/{cfg.whos_wf}"
 if cfg.whos_wf == 'vincenzo':
-    wil_import = np.genfromtxt(
-        f"{path_SSC}/config/common_data/everyones_WF_from_Gdrive/vincenzo/wil_vincenzo_IA_PySSC_nz8000.dat")
-    wig_import = np.genfromtxt(
-        f"{path_SSC}/config/common_data/everyones_WF_from_Gdrive/vincenzo/wig_vincenzo_PySSC_nz8000.dat")
+    raise ValueError('vincenzos WF seem to have some problem')
+    wil_import = np.genfromtxt(f"{path_WF}/wil_vincenzo_{IA_flag}_PySSC_nz{cfg.nz_WF_import}.dat")
+    wig_import = np.genfromtxt(f"{path_WF}/wig_vincenzo_PySSC_nz{cfg.nz_WF_import}.dat")
+if cfg.whos_wf == 'marco':
+    wil_import = np.load(f"{path_WF}/wil_mar_bia{ISTF.IA_free['beta_IA']}_IST_nz{cfg.nz_WF_import}.npy")
+    wig_import = np.load(f"{path_WF}/wig_mar_IST_nz{cfg.nz_WF_import}.npy")
+    z_marco = np.genfromtxt(f"{path_WF}/z_values.txt")
 else:
-    raise ValueError('whos_wf must be \'vincenzo\'')
+    # raise ValueError('whos_wf must be "davide", "marco", "vincenzo" or "sylvain"')
+    raise ValueError('whos_wf must be "marco", at the moment')
 
+
+def reshape_marcos_WF(WF_import):
+    WF_import_resh = WF_import.copy()
+
+    # some are not transposed
+    if WF_import_resh.shape != (10000, 10):
+        WF_import_resh = WF_import_resh.T
+
+    # insert z column
+    WF_import_resh = np.insert(WF_import_resh, 0, z_marco, axis=1)
+    return WF_import_resh
+
+# loop over all files and save the reshaped matrices
+wf_dict = dict(mm.get_kv_pairs_npy(path_WF))
+for key in wf_dict.keys():
+    print(key)
+    wf_reshaped = reshape_marcos_WF(wf_dict[key])
+    np.save(f'{path_WF}/new/{key}.npy', wf_reshaped)
+
+wf_dict = dict(mm.get_kv_pairs_npy(f'{path_WF}/new'))
+for key in wf_dict.keys():
+    plt.figure()
+    for i in range(10):
+        plt.plot(wf_dict[key][:, 0], wf_dict[key][:, i+1], label='wil')
+
+
+
+
+
+if cfg.whos_wf == 'marco':
+    for i in range(10):
+        plt.plot(wil_import_resh[:, 0], wil_import_resh[:, i+1], label='wil')
+    plt.title('wil')
+    plt.figure()
+    for i in range(10):
+        plt.plot(wig_import_resh[:, 0], wig_import_resh[:, i+1], label='wig')
+    plt.title('wig')
+
+assert 1 > 2
+
+
+
+
+
+k_array = np.logspace(np.log10(cfg.k_min), np.log10(cfg.k_max), cfg.k_points)
+z_array = np.linspace(z_min, z_max, cfg.zsteps_cl)
 z_wf = wig_import[:, 0]
+assert wig_import[:, 0] == cfg.nz_WF_import, 'the number of z points in the kernels is not the required one'
+
+
+
+assert 1 > 2
 
 ################### defining the functions
 
@@ -100,13 +161,7 @@ Pk = csmlb.calculate_power(cosmo_classy, z_array, k_array, use_h_units=True, Pk_
                            argument_type='arrays')
 Pk_interp = interp2d(k_array, z_array, Pk)
 
-
-
 assert 1 > 2
-
-
-
-
 
 ############################################### DEBUGGIN'
 

@@ -33,10 +33,6 @@ IA_model = 'eNLA'
 useIA = True
 
 
-z_minus = np.array((0.0010, 0.42, 0.56, 0.68, 0.79, 0.90, 1.02, 1.15, 1.32, 1.58))
-z_plus = np.array((0.42, 0.56, 0.68, 0.79, 0.90, 1.02, 1.15, 1.32, 1.58, 2.50))
-
-
 
 # xxx is z_max = 4 to be used everywhere?
 z_max = 4
@@ -46,8 +42,15 @@ z_max = 4
 
 # cl settings
 nbl = 30
-whos_wf = 'vincenzo'
-znum_cl = 500
+zsteps_cl = 500   # vincenzo uses 303
 units = "1/Mpc"
+
+k_min = 10 ** (-5.442877)
+k_max = 30  # in Mpc**-1
+k_points = 804
+
+whos_wf = 'marco'
+nz_WF_import = 10_000  # number of z points in the wf imported
+
 
 
