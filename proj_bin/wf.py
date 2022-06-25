@@ -10,30 +10,25 @@ from numba import njit
 from scipy.integrate import quad, quad_vec, simpson
 from scipy.interpolate import interp1d, interp2d
 
-matplotlib.use('Qt5Agg')
-
 project_path = Path.cwd().parent
+
 sys.path.append(str(project_path))
+sys.path.append(str(project_path.parent / 'common_data/common_config'))
 
-import lib.cosmo_lib as csmlb
+# project modules
+import proj_lib.cosmo_lib as csmlb
 import config.config as cfg
+# general configuration modules
+import ISTF_fid_params as ISTF
+import mpl_rcParams as mpl_rcParams
 
-script_name = sys.argv[0]
-params = {'lines.linewidth': 2.5,
-          'font.size': 20,
-          'axes.labelsize': 'x-large',
-          'axes.titlesize': 'x-large',
-          'xtick.labelsize': 'x-large',
-          'ytick.labelsize': 'x-large',
-          'mathtext.fontset': 'stix',
-          'font.family': 'STIXGeneral'
-          }
-plt.rcParams.update(params)
-markersize = 10
+# update plot paramseters
+rcParams = mpl_rcParams.mpl_rcParams_dict
+plt.rcParams.update(rcParams)
 
 ###############################################################################
 ###############################################################################
-####################### ########################################################
+###############################################################################
 
 
 script_start = time.perf_counter()
@@ -64,42 +59,54 @@ with open("%s/output/WF/%s/options.txt" % (project_path, WFs_output_folder), "w"
 #     print ("Successfully created the directory %s " % new_folder)
 
 
-c = cfg.c
-H0 = cfg.H0
-Om0 = cfg.Om0
-Ode0 = cfg.Ode0
-Ob0 = cfg.Ob0
-Ox0 = cfg.Ox0
-gamma = cfg.gamma
+c = ISTF.constants['c']
 
-z_minus = cfg.z_minus
-z_plus = cfg.z_plus
-z_mean = cfg.z_mean
-z_min = cfg.z_min
-z_max = cfg.z_max
-z_m = cfg.z_m
-z_0 = cfg.z_0
-zbins = cfg.zbins
+H0 = ISTF.primary['h_0'] * 100
+Om0 = ISTF.primary['Om_m0']
+Ob0 = ISTF.primary['Om_b0']
 
-f_out = cfg.f_out
-sigma_b = cfg.sigma_b
-sigma_o = cfg.sigma_o
-c_b = cfg.c_b
-c_o = cfg.c_o
-z_b = cfg.z_b
-z_o = cfg.z_o
+gamma = ISTF.extensions['gamma']
 
-A_IA = cfg.A_IA
-C_IA = cfg.C_IA
-eta_IA = cfg.eta_IA
-beta_IA = cfg.beta_IA
+z_edges = ISTF.photoz_bins['zbin_edges']
+z_minus = z_edges[:-1]
+z_plus = z_edges[1:]
+z_m = ISTF.photoz_bins['z_median']
+zbins = ISTF.photoz_bins['zbins']
+
+z_0 = z_m / np.sqrt(2)
+z_mean = (z_plus + z_minus) / 2
+z_min = z_edges[0]
+z_max = z_edges[-1]
+
+f_out = ISTF.photoz_pdf['f_out']
+sigma_b = ISTF.photoz_pdf['sigma_b']
+sigma_o = ISTF.photoz_pdf['sigma_o']
+c_b = ISTF.photoz_pdf['c_b']
+c_o = ISTF.photoz_pdf['c_o']
+z_b = ISTF.photoz_pdf['z_b']
+z_o = ISTF.photoz_pdf['z_o']
+
+A_IA = ISTF.IA_free['A_IA']
+eta_IA = ISTF.IA_free['eta_IA']
+beta_IA = ISTF.IA_free['beta_IA']
+C_IA = ISTF.IA_fixed['C_IA']
+
+IA_model = cfg.IA_model
+
+if IA_model == 'eNLA':
+    beta_IA = 2.17
+elif IA_model == 'zNLA':
+    beta_IA = 0.0
 
 simps_z_step_size = 1e-4
 
 n_bar = np.genfromtxt("%s/output/n_bar.txt" % project_path)
 lumin_ratio = np.genfromtxt("%s/input/scaledmeanlum-E2Sa_EXTRAPOLATED.txt" % project_path)
 
+print('RECHECK Ox0 in cosmolib')
+print('RECHECK z_mean')
 
+assert 1 > 2
 ####################################### function definition
 
 
@@ -355,11 +362,9 @@ for i in range(zbins):
 plt.legend()
 plt.show()
 
-
 # insert z array values in the 0-th column
 wil_IA_IST_arr = np.insert(wil_IA_IST_arr, 0, z_array, axis=1)
 wig_IST_arr = np.insert(wig_IST_arr, 0, z_array, axis=1)
-
 
 np.save(project_path / f'output/WF/{WFs_output_folder}/wil_IA_IST_nz{zpoints}.npy', wil_IA_IST_arr)
 np.save(project_path / f'output/WF/{WFs_output_folder}/wig_IST_nz{zpoints}.npy', wig_IST_arr)

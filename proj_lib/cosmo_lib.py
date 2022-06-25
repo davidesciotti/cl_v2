@@ -8,24 +8,32 @@ from numba import njit
 
 project_path = Path.cwd().parent
 sys.path.append(str(project_path))
+sys.path.append(str(project_path.parent / 'common_data/common_config'))
 
+import ISTF_fid_params as ISTF
 import config.config as cfg
 
-H0 = cfg.H0
-h = cfg.h
-c = cfg.c
-Om0 = cfg.Om0
-Ode0 = cfg.Ode0
-Ox0 = cfg.Ox0
-Ob0 = cfg.Ob0
+c = ISTF.constants['c']
+
+Om0 = ISTF.primary['Om_m0']
+Ob0 = ISTF.primary['Om_b0']
+w0 = ISTF.primary['w_0']
+wa = ISTF.primary['w_a']
+h = ISTF.primary['h_0']
+n_s = ISTF.primary['n_s']
+sigma_8 = ISTF.primary['sigma_8']
+
+Ode0 = ISTF.extensions['Om_Lambda0']
+Ok0 = ISTF.extensions['Om_k0']
+
+Neff = ISTF.neutrino_params['N_eff']
+m_nu = ISTF.extensions['m_nu']
+
 Oc0 = Om0 - Ob0
-w0 = cfg.w0
-wa = cfg.wa
-Neff = cfg.Neff
-m_nu = cfg.m_nu
-n_s = cfg.n_s
-sigma_8 = cfg.sigma_8
-#
+H0 = h * 100
+
+
+
 cosmo_par_dict = {'Omega_b': Ob0,
                   'Omega_cdm': Oc0,
                   'n_s': n_s,
@@ -45,7 +53,7 @@ cosmo_classy.compute()
 
 @njit
 def inv_E(z):
-    result = 1 / np.sqrt(Om0 * (1 + z) ** 3 + Ode0 + Ox0 * (1 + z) ** 2)
+    result = 1 / np.sqrt(Om0 * (1 + z) ** 3 + Ode0 + Ok0 * (1 + z) ** 2)
     return result
 
 
@@ -67,7 +75,7 @@ def k_limber(ell, z):
 
 # @njit
 # def E(z):
-#     result = np.sqrt(Om0 * (1 + z) ** 3 + Ode0 + Ox0 * (1 + z) ** 2)
+#     result = np.sqrt(Om0 * (1 + z) ** 3 + Ode0 + Ok0 * (1 + z) ** 2)
 #     return result
 
 # old, "manual", slowwwww

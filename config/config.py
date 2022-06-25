@@ -32,53 +32,16 @@ start_time = time.perf_counter()
 IA_model = 'eNLA'
 useIA = True
 
-Om0 = 0.32
-Ode0 = 0.68
-Ob0 = 0.05
-Ox0 = 0
-gamma = 0.55
-w0 = -1.0
-wa = 0.0
-Neff = 3.04
-m_nu = 0.06
-h = 0.67
-n_s = 0.96
-sigma_8 = 0.816
-
-c = 299792.458  # km/s
-H0 = h * 100  # km/(s*Mpc)
 
 z_minus = np.array((0.0010, 0.42, 0.56, 0.68, 0.79, 0.90, 1.02, 1.15, 1.32, 1.58))
 z_plus = np.array((0.42, 0.56, 0.68, 0.79, 0.90, 1.02, 1.15, 1.32, 1.58, 2.50))
 
-z_mean = (z_plus + z_minus) / 2
-z_min = z_minus[0]
-z_max = z_plus[9]
+
 
 # xxx is z_max = 4 to be used everywhere?
 z_max = 4
 
-f_out = 0.1
-sigma_b = 0.05
-sigma_o = 0.05
-c_b = 1.0
-c_o = 1.0
-z_b = 0
-z_o = 0.1
 
-z_m = 0.9
-z_0 = z_m / np.sqrt(2)
-
-A_IA = 1.72
-C_IA = 0.0134
-eta_IA = -0.41
-
-if IA_model == 'eNLA':
-    beta_IA = 2.17
-elif IA_model == 'zNLA':
-    beta_IA = 0.0
-
-zbins = 10
 
 
 # cl settings
