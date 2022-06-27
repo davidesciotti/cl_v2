@@ -128,8 +128,7 @@ z_array = np.linspace(z_min, z_max_cl, cfg.zsteps_cl)
 cosmo_classy = csmlb.cosmo_classy
 
 #
-Pk = csmlb.calculate_power(cosmo_classy, z_array, k_array, use_h_units=True, Pk_kind='nonlinear',
-                           argument_type='arrays')
+Pk = csmlb.calculate_power(cosmo_classy, z_array, k_array, use_h_units=True)
 
 Pk_interp = interp2d(k_array, z_array, Pk)
 
@@ -152,15 +151,12 @@ ell_LL, _ = ell_utils.ISTF_ells(ell_cfg_dict_WL)
 ell_GG, _ = ell_utils.ISTF_ells(ell_cfg_dict_GC)
 ell_LG = ell_GG.copy()
 
-####### check the PS
+cosmo_astropy=csmlb.cosmo_astropy
 
-z_test = 1
-k_limber_array = csmlb.k_limber(z=1, ell=ell_LL, cosmo_astropy=csmlb.cosmo_astropy, use_h_units=use_h_units)
-P_array = [Pk(csmlb.k_limber(ell, z=1), z=1) for ell in ell_LL]
+#
+# k_limber_array = csmlb.k_limber(z=1, ell=ell_LL, cosmo_astropy=csmlb.cosmo_astropy, use_h_units=use_h_units)
+# P_array = [Pk(csmlb.k_limber(ell, z=1), z=1) for ell in ell_LL]
 
-
-
-############################################### STOP DEBUGGIN'
 
 
 # IA/noIA, old/new/multibinBias are decided in the import section at the beginning of the code
@@ -190,7 +186,7 @@ for i in range(zbins):
 
 
 # integrand
-def K_ij_XC(z, i, j):
+def K_ij_LG(z, i, j):
     return wil(z, j) * wig(z, i) / (csmlb.E(z) * csmlb.r(z) ** 2)
 
 
@@ -201,7 +197,7 @@ def K_ij_GG(z, i, j):
 # integral
 def Cij_LG_partial(i, j, nbin, ell):
     def integrand(z, i, j, ell):
-        return K_ij_XC(z, i, j) * P(csmlb.k_limber(ell, z), z)
+        return K_ij_LG(z, i, j) * Pk(csmlb.k_limber(ell, z), z)
 
     result = c / H0 * quad(integrand, z_minus[nbin], z_plus[nbin], args=(i, j, ell))[0]
     return result
@@ -209,7 +205,7 @@ def Cij_LG_partial(i, j, nbin, ell):
 
 def Cij_GG_partial(i, j, nbin, ell):
     def integrand(z, i, j, ell):
-        return K_ij_GG(z, i, j) * P(csmlb.k_limber(ell, z), z)
+        return K_ij_GG(z, i, j) * Pk(csmlb.k_limber(ell, z), z)
 
     result = c / H0 * quad(integrand, z_minus[nbin], z_plus[nbin], args=(i, j, ell))[0]
     return result
@@ -231,9 +227,17 @@ def sum_Cij_GG(i, j, ell):
 
 
 ###### OLD BIAS ##################
+def Pk(k_ell, z):
+    """just a wrapper function"""
+    return csmlb.calculate_power(cosmo_classy, z, k_ell, use_h_units=use_h_units, Pk_kind='nonlinear', argument_type='scalar')
+
+def k_limb(ell, z, cosmo_astropy=cosmo_astropy, use_h_units=use_h_units):
+    """another simpe wrapper function"""
+    return csmlb.k_limber(ell, z, cosmo_astropy, use_h_units)
+
 def Cij_LL_function(i, j, ell):
     def integrand(z, i, j, ell):  # first argument is the integration variable
-        return ((wil(z, i) * wil(z, j)) / (csmlb.E(z) * csmlb.r(z) ** 2)) * P(csmlb.k_limber(ell, z), z)
+        return ((wil(z, i) * wil(z, j)) / (csmlb.E(z) * csmlb.r(z) ** 2)) * Pk(k_limb(ell, z), z)
 
     result = c / H0 * quad(integrand, z_min, z_max_cl, args=(i, j, ell))[0]
     # check z_min, z_max xxx
@@ -242,7 +246,7 @@ def Cij_LL_function(i, j, ell):
 
 def Cij_LG_function(i, j, ell):  # xxx GL or LG? OLD BIAS
     def integrand(z, i, j, ell):  # first argument is the integration variable
-        return ((wil(z, i) * wig(z, j)) / (csmlb.E(z) * csmlb.r(z) ** 2)) * P(csmlb.k_limber(ell, z), z)
+        return ((wil(z, i) * wig(z, j)) / (csmlb.E(z) * csmlb.r(z) ** 2)) * Pk(k_limb(ell, z), z)
 
     result = c / H0 * quad(integrand, z_min, z_max_cl, args=(i, j, ell))[0]
     return result
@@ -250,7 +254,7 @@ def Cij_LG_function(i, j, ell):  # xxx GL or LG? OLD BIAS
 
 def Cij_GG_function(i, j, ell):  # OLD BIAS
     def integrand(z, i, j, ell):  # first argument is the integration variable
-        return ((wig(z, i) * wig(z, j)) / (csmlb.E(z) * csmlb.r(z) ** 2)) * P(csmlb.k_limber(ell, z), z)
+        return ((wig(z, i) * wig(z, j)) / (csmlb.E(z) * csmlb.r(z) ** 2)) * Pk(k_limb(ell, z), z)
 
     result = c / H0 * quad(integrand, z_min, z_max_cl, args=(i, j, ell), full_output=True)[0]
     # xxx maybe you can try with scipy.integrate.romberg
@@ -333,14 +337,6 @@ def fill_symmetric_Cls(Cij_array):
 ###############################################################################
 ################# end of function declaration
 ###############################################################################
-path_masterUnified_forSSCcomparison = "C:/Users/dscio/Documents/Lavoro/Programmi/master_unified_forSSCcomparison"
-ell_LL = np.genfromtxt(f"{path_masterUnified_forSSCcomparison}/output/ell_values/ell_WL_ellMaxWL5000_nbl{nbl}.txt")
-ell_GG = np.genfromtxt(f"{path_masterUnified_forSSCcomparison}/output/ell_values/ell_GC_ellMaxGC3000_nbl{nbl}.txt")
-
-# XXX fundamental 
-ell_LL = 10 ** ell_LL
-ell_GG = 10 ** ell_GG
-ell_LG = ell_GG
 
 # XXX I just computed LL, to be quicker
 # compute
@@ -353,13 +349,23 @@ C_LL_array = compute_Cij(ell_LL, Cij_LL_function, symmetric_flag="yes")
 #     C_LG_array = compute_Cij(ell_LG, sum_Cij_LG, symmetric_flag = "no")
 
 # symmetrize
-# C_LL_array = fill_symmetric_Cls(C_LL_array)
+C_LL_array = fill_symmetric_Cls(C_LL_array)
 # C_GG_array = fill_symmetric_Cls(C_GG_array)
 
+# import Vincenzo to check:
+path_vinc = '/Users/davide/Documents/Lavoro/Programmi/common_data/vincenzo/Cij-NonLin-eNLA_15gen'
+cl_vinc = np.genfromtxt(f'{path_vinc}/CijLL-LCDM-NonLin-eNLA.dat')
+cl_dav_old = np.load('/Users/davide/Documents/Lavoro/Programmi/archive/Cij_davide/output/Cij/Cijs_v19_ALL/Cij_WFdavide_IA_newBias_nz10000/Cij_LL.npy')
+
+plt.plot(ell_LL, C_LL_array[:, 0, 0])
+plt.plot(ell_LL, cl_dav_old[:, 0, 0])
+plt.plot(cl_vinc[:, 0], cl_vinc[:, 1])
+
 # save
-# np.save("%s/output/Cij/%s/Cij_LL.npy" %(path, cfg.cl_out_folder), C_LL_array)
-# np.save("%s/output/Cij/%s/Cij_LG.npy" %(path, cfg.cl_out_folder), C_LG_array)
-# np.save("%s/output/Cij/%s/Cij_GG.npy" %(path, cfg.cl_out_folder), C_GG_array)
+np.save(project_path / f"output/Cij/{cfg.cl_out_folder}/Cij_LL.npy", C_LL_array)
+# np.save(project_path / f"output/Cij/{cfg.cl_out_folder}/Cij_LG.npy", C_LG_array)
+# np.save(project_path / f"output/Cij/{cfg.cl_out_folder}/Cij_GG.npy", C_GG_array)
+
 print("saved")
 ############### reshape to compare with others ##########
 # reshape(C_LL_array, 55, "C_LL_2D.txt")

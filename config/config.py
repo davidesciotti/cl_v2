@@ -62,7 +62,7 @@ k_points = 804
 whos_wf = 'marco'
 nz_WF_import = 10_000  # number of z points in the wf imported
 
-cl_out_folder = f'cl_v21/Cij_WF{whos_wf}_{IA_flag}_nz{zsteps_cl}_{units}'
+cl_out_folder = f'cl_v21/Cij_WF{whos_wf}_{IA_flag}_nz{zsteps_cl}'
 
 
 

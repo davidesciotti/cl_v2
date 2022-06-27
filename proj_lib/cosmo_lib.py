@@ -213,6 +213,17 @@ def k_limber(z, ell, cosmo_astropy, use_h_units):
     k_ell = (ell + 0.5) / comoving_distance
     return k_ell
 
+def k_limber_new(z, ell, cosmo_astropy, use_h_units):
+
+    """ I get an error if ell is a vector! Let's try to correct that:"""
+
+    assert type(use_h_units) == bool, 'use_h_units must be True or False'
+
+    # astropy gives values in Mpc, so I call astropy_comoving_distance to have the correct values in both cases
+    comoving_distance = astropy_comoving_distance(z, cosmo_astropy, use_h_units)
+    k_ell = (ell + 0.5) / comoving_distance
+    return k_ell
+
 
 def astropy_comoving_distance(z, cosmo_astropy, use_h_units):
     if use_h_units:
