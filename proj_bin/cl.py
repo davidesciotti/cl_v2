@@ -127,6 +127,7 @@ z_array = np.linspace(z_min, z_max_cl, cfg.zsteps_cl)
 # Pk
 cosmo_classy = csmlb.cosmo_classy
 
+#
 Pk = csmlb.calculate_power(cosmo_classy, z_array, k_array, use_h_units=True, Pk_kind='nonlinear',
                            argument_type='arrays')
 
@@ -153,31 +154,10 @@ ell_LG = ell_GG.copy()
 
 ####### check the PS
 
-P_array = [P(csmlb.k_limber(ell, z=1), z=1) for ell in ell_LL]
-k_limber_array = csmlb.k_limber(z=1, ell=ell_LL, cosmo_astropy=csmlb.cosmo_astropy, use_h_units=units)
+z_test = 1
+k_limber_array = csmlb.k_limber(z=1, ell=ell_LL, cosmo_astropy=csmlb.cosmo_astropy, use_h_units=use_h_units)
+P_array = [Pk(csmlb.k_limber(ell, z=1), z=1) for ell in ell_LL]
 
-# import Davide
-z_dav = np.genfromtxt(project_path / "input/Power_Spectrum/z.txt")
-
-# PS vincenzo:
-PS_vinc = np.genfromtxt(f"{path_SSC_CMBX}/data/vincenzo/Cij-NonLin-eNLA_15gen/Pnl-TB-LCDM.dat")
-z_vinc = np.unique(PS_vinc[:, 1])
-
-# PS davide: reimport it to have the first column
-Pk_import = np.genfromtxt(project_path / f"input/Power_Spectrum/Pnl_{units}.txt")  # XXX careful of the units
-
-z_0 = (PS_vinc[:, 1] == 0)  # this is where redshift = 0
-PS_vinc_z0 = PS_vinc[z_0]
-
-plt.plot(np.log10(Pk_import[:, 0]), Pk_import[:, 1])
-# 10** because I already take the log scale on the y axis
-plt.plot(PS_vinc_z0[:, 0], 10 ** PS_vinc_z0[:, 2], '--')  # column 2 should be the nonlin PS
-# plt.plot(ell_LL, k_limber_array)
-plt.plot(np.log10(ell_LL), P_array)
-
-plt.yscale("log")
-
-assert 1 > 2
 
 
 ############################################### STOP DEBUGGIN'
