@@ -361,6 +361,19 @@ plt.plot(ell_LL, C_LL_array[:, 0, 0])
 plt.plot(ell_LL, cl_dav_old[:, 0, 0])
 plt.plot(cl_vinc[:, 0], cl_vinc[:, 1])
 
+
+# check what is going on
+z_test = 0
+k_limb_arr = [Pk(ell, z_test) for ell in ell_LL]
+k_limb_arr_old = [csmlb.k_limber(ell, z_test, cosmo_astropy, use_h_units) for ell in ell_LL]
+
+
+k_limb_arr
+plt.plot(ell_LL, k_limb_arr)
+plt.plot(ell_LL, k_limb_arr_old, '--')
+Pk_arr = [Pk(k_limb(ell, z_test), z_test) for ell in ell_LL]
+plt.plot(ell_LL, Pk_arr)
+
 # save
 np.save(project_path / f"output/Cij/{cfg.cl_out_folder}/Cij_LL.npy", C_LL_array)
 # np.save(project_path / f"output/Cij/{cfg.cl_out_folder}/Cij_LG.npy", C_LG_array)
