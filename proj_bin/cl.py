@@ -22,14 +22,14 @@ import ell_values_running as ell_utils
 
 # general configuration modules
 import ISTF_fid_params as ISTF
-import mpl_rcParams as mpl_rcParams
+import mpl_cfg as mpl_cfg
 
 # this project's modules
 import config.config as cfg
 import proj_lib.cosmo_lib as csmlb
 
 # update plot pars
-rcParams = mpl_rcParams.mpl_rcParams_dict
+rcParams = mpl_cfg.mpl_rcParams_dict
 plt.rcParams.update(rcParams)
 matplotlib.use('Qt5Agg')
 
@@ -73,7 +73,8 @@ if units == 'h/Mpc':
     use_h_units = True
 elif units == '1/Mpc':
     use_h_units = False
-else: raise ValueError('units must be h/Mpc or 1/Mpc')
+else:
+    raise ValueError('units must be h/Mpc or 1/Mpc')
 
 if not cfg.useIA:
     raise ValueError('cfg.useIA must True for the moment')
@@ -132,7 +133,6 @@ Pk = csmlb.calculate_power(cosmo_classy, z_array, k_array, use_h_units=True)
 
 Pk_interp = interp2d(k_array, z_array, Pk)
 
-
 # ell values
 
 # set the parameters, the functions wants a dict as input
@@ -151,12 +151,12 @@ ell_LL, _ = ell_utils.ISTF_ells(ell_cfg_dict_WL)
 ell_GG, _ = ell_utils.ISTF_ells(ell_cfg_dict_GC)
 ell_LG = ell_GG.copy()
 
-cosmo_astropy=csmlb.cosmo_astropy
+cosmo_astropy = csmlb.cosmo_astropy
+
 
 #
 # k_limber_array = csmlb.k_limber(z=1, ell=ell_LL, cosmo_astropy=csmlb.cosmo_astropy, use_h_units=use_h_units)
 # P_array = [Pk(csmlb.k_limber(ell, z=1), z=1) for ell in ell_LL]
-
 
 
 # IA/noIA, old/new/multibinBias are decided in the import section at the beginning of the code
@@ -197,7 +197,7 @@ def K_ij_GG(z, i, j):
 # integral
 def Cij_LG_partial(i, j, nbin, ell):
     def integrand(z, i, j, ell):
-        return K_ij_LG(z, i, j) * Pk(csmlb.k_limber(ell, z), z)
+        return K_ij_LG(z, i, j) * Pk_wrap(csmlb.k_limber(ell, z), z)
 
     result = c / H0 * quad(integrand, z_minus[nbin], z_plus[nbin], args=(i, j, ell))[0]
     return result
@@ -205,7 +205,7 @@ def Cij_LG_partial(i, j, nbin, ell):
 
 def Cij_GG_partial(i, j, nbin, ell):
     def integrand(z, i, j, ell):
-        return K_ij_GG(z, i, j) * Pk(csmlb.k_limber(ell, z), z)
+        return K_ij_GG(z, i, j) * Pk_wrap(csmlb.k_limber(ell, z), z)
 
     result = c / H0 * quad(integrand, z_minus[nbin], z_plus[nbin], args=(i, j, ell))[0]
     return result
@@ -227,17 +227,20 @@ def sum_Cij_GG(i, j, ell):
 
 
 ###### OLD BIAS ##################
-def Pk(k_ell, z):
-    """just a wrapper function"""
-    return csmlb.calculate_power(cosmo_classy, z, k_ell, use_h_units=use_h_units, Pk_kind='nonlinear', argument_type='scalar')
+def Pk_wrap(k_ell, z, cosmo_classy=cosmo_classy, use_h_units=use_h_units, Pk_kind='nonlinear', argument_type='scalar'):
+    """just a wrapper function to set some args to default values"""
+    return csmlb.calculate_power(cosmo_classy, z, k_ell, use_h_units=use_h_units,
+                                 Pk_kind=Pk_kind, argument_type=argument_type)
 
-def k_limb(ell, z, cosmo_astropy=cosmo_astropy, use_h_units=use_h_units):
-    """another simpe wrapper function"""
-    return csmlb.k_limber(ell, z, cosmo_astropy, use_h_units)
+
+def kl_wrap(ell, z, use_h_units=use_h_units):
+    """another simpe wrapper function, so as not to have to rewrite use_h_units=use_h_units"""
+    return csmlb.k_limber(ell, z, use_h_units=use_h_units)
+
 
 def Cij_LL_function(i, j, ell):
     def integrand(z, i, j, ell):  # first argument is the integration variable
-        return ((wil(z, i) * wil(z, j)) / (csmlb.E(z) * csmlb.r(z) ** 2)) * Pk(k_limb(ell, z), z)
+        return ((wil(z, i) * wil(z, j)) / (csmlb.E(z) * csmlb.r(z) ** 2)) * Pk_wrap(kl_wrap(ell, z), z)
 
     result = c / H0 * quad(integrand, z_min, z_max_cl, args=(i, j, ell))[0]
     # check z_min, z_max xxx
@@ -246,7 +249,7 @@ def Cij_LL_function(i, j, ell):
 
 def Cij_LG_function(i, j, ell):  # xxx GL or LG? OLD BIAS
     def integrand(z, i, j, ell):  # first argument is the integration variable
-        return ((wil(z, i) * wig(z, j)) / (csmlb.E(z) * csmlb.r(z) ** 2)) * Pk(k_limb(ell, z), z)
+        return ((wil(z, i) * wig(z, j)) / (csmlb.E(z) * csmlb.r(z) ** 2)) * Pk_wrap(kl_wrap(ell, z), z)
 
     result = c / H0 * quad(integrand, z_min, z_max_cl, args=(i, j, ell))[0]
     return result
@@ -254,7 +257,7 @@ def Cij_LG_function(i, j, ell):  # xxx GL or LG? OLD BIAS
 
 def Cij_GG_function(i, j, ell):  # OLD BIAS
     def integrand(z, i, j, ell):  # first argument is the integration variable
-        return ((wig(z, i) * wig(z, j)) / (csmlb.E(z) * csmlb.r(z) ** 2)) * Pk(k_limb(ell, z), z)
+        return ((wig(z, i) * wig(z, j)) / (csmlb.E(z) * csmlb.r(z) ** 2)) * Pk_wrap(kl_wrap(ell, z), z)
 
     result = c / H0 * quad(integrand, z_min, z_max_cl, args=(i, j, ell), full_output=True)[0]
     # xxx maybe you can try with scipy.integrate.romberg
@@ -313,6 +316,7 @@ def compute_Cij(ell_values, Cij_function, symmetric_flag):
             k = k + 1
         print("k = %i, ell = %f" % (k, ell))
         print("the program took %i seconds to run" % (time.time() - script_start))
+
         for i in range(zbins):
             for j in range(zbins):
                 if symmetric_flag == "yes":
@@ -355,24 +359,40 @@ C_LL_array = fill_symmetric_Cls(C_LL_array)
 # import Vincenzo to check:
 path_vinc = '/Users/davide/Documents/Lavoro/Programmi/common_data/vincenzo/Cij-NonLin-eNLA_15gen'
 cl_vinc = np.genfromtxt(f'{path_vinc}/CijLL-LCDM-NonLin-eNLA.dat')
-cl_dav_old = np.load('/Users/davide/Documents/Lavoro/Programmi/archive/Cij_davide/output/Cij/Cijs_v19_ALL/Cij_WFdavide_IA_newBias_nz10000/Cij_LL.npy')
+cl_dav_old = np.load(
+    '/Users/davide/Documents/Lavoro/Programmi/archive/Cij_davide/output/Cij/Cijs_v19_ALL/Cij_WFdavide_IA_newBias_nz10000/Cij_LL.npy')
 
 plt.plot(ell_LL, C_LL_array[:, 0, 0])
 plt.plot(ell_LL, cl_dav_old[:, 0, 0])
 plt.plot(cl_vinc[:, 0], cl_vinc[:, 1])
 
-
 # check what is going on
 z_test = 0
-k_limb_arr = [Pk(ell, z_test) for ell in ell_LL]
+k_limb_arr = [Pk_wrap(ell, z_test) for ell in ell_LL]
 k_limb_arr_old = [csmlb.k_limber(ell, z_test, cosmo_astropy, use_h_units) for ell in ell_LL]
 
-
-k_limb_arr
 plt.plot(ell_LL, k_limb_arr)
 plt.plot(ell_LL, k_limb_arr_old, '--')
-Pk_arr = [Pk(k_limb(ell, z_test), z_test) for ell in ell_LL]
+Pk_arr = [Pk_wrap(kl_wrap(ell, z_test), z_test) for ell in ell_LL]
 plt.plot(ell_LL, Pk_arr)
+
+# test the Pk array
+# z_array_limber = np.linspace(0.001, 4, 100)
+#
+# for zi, zval in enumerate(z_array_limber):
+#     for ell_idx, ell_val in enumerate(ell_LL):
+#
+#         # k_limber should already be in the correct units, from the cosmo_astropy call
+#         kl = csmlb.k_limber(zval, ell_LL, cosmo_astropy=cosmo_astropy, use_h_units=use_h_units)
+#
+#         # Pk_with_classy_clustertlkt wants in input k in 1/Mpc; so, if I'm using h units, transform kl to 1/Mpc
+#         # ! this is assuming that the k_limber function returns kl in the correct units
+#         if use_h_units:
+#             kl *= h
+#
+#         kl[], P_kl_z = csmlb.Pk_with_classy_clustertlkt(cosmo, zval, kl, use_h_units, Pk_kind='nonlinear',
+#                                                         argument_type='scalar')
+
 
 # save
 np.save(project_path / f"output/Cij/{cfg.cl_out_folder}/Cij_LL.npy", C_LL_array)

@@ -60,15 +60,34 @@ def E(z):
 
 
 def r(z):
+    """ in Mpc, NOT Mpc/h"""
     return cosmo_astropy.comoving_distance(z).value
+
+
+def astropy_comoving_distance(z, use_h_units, cosmo_astropy=cosmo_astropy):
+    if use_h_units:
+        return cosmo_astropy.comoving_distance(z).value * h  # Mpc/h
+    else:
+        return cosmo_astropy.comoving_distance(z).value  # Mpc
 
 
 def r_tilde(z):
     return H0 / c * r(z)
 
 
-def k_limber(ell, z):
-    return (ell + 1 / 2) / r(z)
+def ang_diam_dist(z):
+    return cosmo_astropy.angular_diameter_distance(z).value
+
+
+def k_limber(ell, z, use_h_units, cosmo_astropy=cosmo_astropy):
+    # TODO I get an error if ell is a vector!to correct that
+
+    assert type(use_h_units) == bool, 'use_h_units must be True or False'
+
+    # astropy gives values in Mpc, so I call astropy_comoving_distance to have the correct values in both cases (h_units
+    # or not)
+    k_ell = (ell + 0.5) / astropy_comoving_distance(z, use_h_units=use_h_units, cosmo_astropy=cosmo_astropy)
+    return k_ell
 
 
 # @njit
@@ -108,6 +127,9 @@ def Pk_with_classy_clustertlkt(cosmo, z_array, k_array, use_h_units, Pk_kind='no
         Pk = np.zeros((len(z_array), num_k))
         for z_idx, z_val in enumerate(z_array):
             Pk[z_idx, :] = np.array([classy_Pk(ki, z_val) for ki in k_array])
+
+    else:
+        raise ValueError('argument_type must be scalar or arrays')
 
     # NOTE: You will need to convert these to h/Mpc and (Mpc/h)^3
     # to use in the toolkit. To do this you would do:
@@ -154,22 +176,19 @@ def calculate_power(cosmo, z_array, k_array, use_h_units=True, Pk_kind='nonlinea
 
 
 def get_external_Pk(whos_Pk='vincenzo', Pk_kind='nonlinear', use_h_units=True):
-
-    assert type(use_h_units) == bool, 'use_h_units must be True or False'
-
     if whos_Pk == 'vincenzo':
-        filename = 'PnlFid.dat'
         z_column = 1
         k_column = 0  # in [1/Mpc]
         Pnl_column = 2  # in [Mpc^3]
         Plin_column = 3  # in [Mpc^3]
 
     elif whos_Pk == 'stefano':
-        filename = 'pkz-Fiducial.txt'
         z_column = 0
         k_column = 1  # in [h/Mpc]
         Pnl_column = 3  # in [Mpc^3/h^3]
         Plin_column = 2  # in [Mpc^3/h^3]
+    else:
+        raise ValueError('whos_Pk must be either stefano or vincenzo')
 
     if Pk_kind == 'linear':
         Pk_column = Plin_column
@@ -178,8 +197,8 @@ def get_external_Pk(whos_Pk='vincenzo', Pk_kind='nonlinear', use_h_units=True):
     else:
         raise ValueError(f'Pk_kind must be either "linear" or "nonlinear"')
 
-    Pkfile = np.genfromtxt(
-        f'/Users/davide/Documents/Lavoro/Programmi/SSC_restructured_v2/jobs/SSC_comparison/input/variable_response/{filename}')
+    path = '/Users/davide/Documents/Lavoro/Programmi/common_data/Pk'
+    Pkfile = np.genfromtxt(path / f'input/variable_response/Pk_{whos_Pk}')
     z_array = np.unique(Pkfile[:, z_column])
     k_array = np.unique(Pkfile[:, k_column])
     Pk = Pkfile[:, Pk_column].reshape(z_array.size, k_array.size)  # / h ** 3
@@ -202,31 +221,3 @@ def get_external_Pk(whos_Pk='vincenzo', Pk_kind='nonlinear', use_h_units=True):
     Pk = np.flip(Pk, axis=0)
 
     return z_array, k_array, Pk
-
-
-def k_limber(z, ell, cosmo_astropy, use_h_units):
-
-    assert type(use_h_units) == bool, 'use_h_units must be True or False'
-
-    # astropy gives values in Mpc, so I call astropy_comoving_distance to have the correct values in both cases
-    comoving_distance = astropy_comoving_distance(z, cosmo_astropy, use_h_units)
-    k_ell = (ell + 0.5) / comoving_distance
-    return k_ell
-
-def k_limber_new(z, ell, cosmo_astropy, use_h_units):
-
-    """ I get an error if ell is a vector! Let's try to correct that:"""
-
-    assert type(use_h_units) == bool, 'use_h_units must be True or False'
-
-    # astropy gives values in Mpc, so I call astropy_comoving_distance to have the correct values in both cases
-    comoving_distance = astropy_comoving_distance(z, cosmo_astropy, use_h_units)
-    k_ell = (ell + 0.5) / comoving_distance
-    return k_ell
-
-
-def astropy_comoving_distance(z, cosmo_astropy, use_h_units):
-    if use_h_units:
-        return cosmo_astropy.comoving_distance(z).value * h  # Mpc/h
-    else:
-        return cosmo_astropy.comoving_distance(z).value  # Mpc
