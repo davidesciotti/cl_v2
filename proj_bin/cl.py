@@ -8,12 +8,13 @@ import time
 from pathlib import Path
 from numba import njit
 import sys
+import type_enforced
 
 # get project directory
 project_path = Path.cwd().parent
 sys.path.append(str(project_path))
 sys.path.append(str(project_path.parent / 'common_data/common_config'))
-sys.path.append(str(project_path.parent / 'SSC_restructured_v2/bins'))
+sys.path.append(str(project_path.parent / 'SSC_restructured_v2/bin'))
 sys.path.append(str(project_path.parent / 'SSC_restructured_v2/lib'))
 
 # from SSC_restructured_v2
@@ -48,6 +49,9 @@ print('XXXXXXXX RECHECK z_mean array (not z_median!)')
 # TODO fix z_array -> fatto? (this is an old TODO)
 # TODO check z_max = 2.5 or =4?:  # XXXX see p.25 of IST paper
 # TODO rerererererecheck vincenzo's WF and normalize name/shapes of everyone's WF
+# TODO check compute_cl_v2, nicer (and faster, in theory)
+# TODO check if you can lower z_min
+# TODO use Vincenzo's Pk (or TakaBird in general)
 # 🐛 could ell values be in log scale? I really don't think so
 
 # set fiducial values and constants
@@ -58,14 +62,15 @@ z_edges = ISTF.photoz_bins['zbin_edges']
 z_m = ISTF.photoz_bins['z_median']
 zbins = ISTF.photoz_bins['zbins']
 
+z_edges[0] = 0.03
+
 z_minus = z_edges[:-1]
 z_plus = z_edges[1:]
 z_mean = (z_plus + z_minus) / 2
 z_min = z_edges[0]
 z_max = z_edges[-1]
 
-z_min = 0.03
-print(f'Warning: z_min has been set to {z_min} to make it possible to compute k_limber at high ells')
+print(f'Warning: z_edges[0] has been set to {z_edges[0]} to make it possible to compute k_limber at high ells and low z')
 
 # configurations
 nbl = cfg.nbl
@@ -101,6 +106,8 @@ if cfg.whos_wf == 'marco':
 else:
     # raise ValueError('whos_wf must be "davide", "marco", "vincenzo" or "sylvain"')
     raise ValueError('whos_wf must be "marco", at the moment')
+
+bias_selector = cfg.bias_selector
 
 # plot WF to check - they must be IST, not PySSC!
 """
@@ -198,34 +205,36 @@ def K_ij_GG(z, i, j):
 
 
 # integral
-def Cij_LG_partial(i, j, nbin, ell):
+@type_enforced.Enforcer
+def Cij_LG_partial(i: int, j: int, zbin: int, ell):
     def integrand(z, i, j, ell):
-        return K_ij_LG(z, i, j) * Pk_wrap(csmlb.k_limber(ell, z), z)
+        return K_ij_LG(z, i, j) * Pk_wrap(kl_wrap(ell, z), z)
 
-    result = c / H0 * quad(integrand, z_minus[nbin], z_plus[nbin], args=(i, j, ell))[0]
+    result = c / H0 * quad(integrand, z_minus[zbin], z_plus[zbin], args=(i, j, ell))[0]
     return result
 
 
-def Cij_GG_partial(i, j, nbin, ell):
+@type_enforced.Enforcer
+def Cij_GG_partial(i: int, j: int, zbin: int, ell):
     def integrand(z, i, j, ell):
-        return K_ij_GG(z, i, j) * Pk_wrap(csmlb.k_limber(ell, z), z)
+        return K_ij_GG(z, i, j) * Pk_wrap(kl_wrap(ell, z), z)
 
-    result = c / H0 * quad(integrand, z_minus[nbin], z_plus[nbin], args=(i, j, ell))[0]
+    result = c / H0 * quad(integrand, z_minus[zbin], z_plus[zbin], args=(i, j, ell))[0]
     return result
 
 
 # summing the partial integrals
 def sum_Cij_LG(i, j, ell):
     result = 0
-    for nbin in range(zbins):
-        result += Cij_LG_partial(i, j, nbin, ell) * b[nbin]
+    for zbin in range(zbins):
+        result += Cij_LG_partial(i, j, zbin, ell) * b[zbin]
     return result
 
 
 def sum_Cij_GG(i, j, ell):
     result = 0
-    for nbin in range(zbins):
-        result += Cij_GG_partial(i, j, nbin, ell) * (b[nbin] ** 2)
+    for zbin in range(zbins):
+        result += Cij_GG_partial(i, j, zbin, ell) * (b[zbin] ** 2)
     return result
 
 
@@ -243,8 +252,6 @@ def kl_wrap(ell, z, use_h_units=use_h_units):
 
 def Cij_LL_function(i, j, ell):
     def integrand(z, i, j, ell):  # first argument is the integration variable
-        if kl_wrap(ell, z) > 10:
-            print(ell, z, kl_wrap(ell, z))
         return ((wil(z, i) * wil(z, j)) / (csmlb.E(z) * csmlb.r(z) ** 2)) * Pk_wrap(kl_wrap(ell, z), z)
 
     result = c / H0 * quad(integrand, z_min, z_max_cl, args=(i, j, ell))[0]
@@ -258,6 +265,9 @@ def Cij_LG_function(i, j, ell):  # xxx GL or LG? OLD BIAS
 
     result = c / H0 * quad(integrand, z_min, z_max_cl, args=(i, j, ell))[0]
     return result
+
+def cl_integrand(z, wf_A, wf_B, i, j, ell):
+    return ((wig(z, i) * wig(z, j)) / (csmlb.E(z) * csmlb.r(z) ** 2)) * Pk_wrap(kl_wrap(ell, z), z)
 
 
 def Cij_GG_function(i, j, ell):  # OLD BIAS
@@ -361,40 +371,49 @@ def fill_symmetric_Cls(Cij_array):
     return Cij_array
 
 
-for ell in ell_LL:
-    for z in np.linspace(0.03, 4, 100):
-        if kl_wrap(ell, z) > 30:
-            print(ell, z, kl_wrap(ell, z))
+def check_k_limber():
+    for ell in ell_GG:
+        for z in np.linspace(0.03, 4, 100):
+            if kl_wrap(ell, z) > 30:
+                print(ell, z, kl_wrap(ell, z))
+
 ###############################################################################
 ################# end of function declaration
 ###############################################################################
 
 # XXX I just computed LL, to be quicker
 # compute
-C_LL_array = compute_cl(ell_LL, Cij_LL_function, symmetric_flag="yes")
-# if bias_selector == "newBias":
-#     C_GG_array = compute_Cij(ell_GG, sum_Cij_GG, symmetric_flag = "yes") 
-#     C_LG_array = compute_Cij(ell_LG, sum_Cij_LG, symmetric_flag = "no")
-# elif bias_selector == "oldBias":
-#     C_GG_array = compute_Cij(ell_GG, sum_Cij_GG, symmetric_flag = "yes") 
-#     C_LG_array = compute_Cij(ell_LG, sum_Cij_LG, symmetric_flag = "no")
+# C_LL_array = compute_cl(ell_LL, Cij_LL_function, symmetric_flag="yes")
+if bias_selector == "newBias":
+    C_GG_array = compute_cl(ell_GG, sum_Cij_GG, symmetric_flag="yes")
+    C_LG_array = compute_cl(ell_LG, sum_Cij_LG, symmetric_flag="no")
+elif bias_selector == "oldBias":
+    C_GG_array = compute_cl(ell_GG, sum_Cij_GG, symmetric_flag="yes")
+    C_LG_array = compute_cl(ell_LG, sum_Cij_LG, symmetric_flag="no")
+else:
+    raise ValueError('bias_selector must be newBias or oldBias')
 
 # symmetrize
-C_LL_array = fill_symmetric_Cls(C_LL_array)
-# C_GG_array = fill_symmetric_Cls(C_GG_array)
+# C_LL_array = fill_symmetric_Cls(C_LL_array)
+C_GG_array = fill_symmetric_Cls(C_GG_array)
 
 # import Vincenzo to check:
 path_vinc = '/Users/davide/Documents/Lavoro/Programmi/common_data/vincenzo/Cij-NonLin-eNLA_15gen'
-cl_vinc = np.genfromtxt(f'{path_vinc}/CijLL-LCDM-NonLin-eNLA.dat')
+C_LL_vinc = np.genfromtxt(f'{path_vinc}/CijLL-LCDM-NonLin-eNLA.dat')
+C_GL_vinc = np.genfromtxt(f'{path_vinc}/CijLG-LCDM-NonLin-eNLA.dat')
+C_GG_vinc = np.genfromtxt(f'{path_vinc}/CijGG-LCDM-NonLin-eNLA.dat')
+
+dav = C_GG_array[:, 0, 0]
+vinc = C_GG_vinc
 
 # plot my array, vincenzo's cls and the % difference
-cl_func = interp1d(cl_vinc[:, 0], cl_vinc[:, 1])
-cl_interp = cl_func(ell_LL)
-diff = mm.percent_diff(C_LL_array[:, 0, 0], cl_interp)
+cl_func = interp1d(vinc[:, 0], vinc[:, 1])
+cl_interp = cl_func(ell_GG)
+diff = mm.percent_diff(dav, cl_interp)
 
-plt.plot(ell_LL, C_LL_array[:, 0, 0], label='C_LL_array')
-plt.plot(cl_vinc[:, 0], cl_vinc[:, 1], label='cl_vinc')
-plt.plot(ell_LL, diff, label='diff')
+# plt.plot(ell_GG, dav, label='dav')
+# plt.plot(vinc[:, 0], vinc[:, 1], label='cl_vinc')
+plt.plot(ell_GG, diff, label='diff')
 plt.legend()
 plt.xscale('log')
 plt.yscale('log')
@@ -419,8 +438,8 @@ plt.yscale('log')
 
 # save
 np.save(project_path / f"output/Cij/{cfg.cl_out_folder}/Cij_LL.npy", C_LL_array)
-# np.save(project_path / f"output/Cij/{cfg.cl_out_folder}/Cij_LG.npy", C_LG_array)
-# np.save(project_path / f"output/Cij/{cfg.cl_out_folder}/Cij_GG.npy", C_GG_array)
+np.save(project_path / f"output/Cij/{cfg.cl_out_folder}/Cij_LG.npy", C_LG_array)
+np.save(project_path / f"output/Cij/{cfg.cl_out_folder}/Cij_GG.npy", C_GG_array)
 
 print("saved")
 ############### reshape to compare with others ##########

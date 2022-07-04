@@ -50,6 +50,8 @@ ell_min = 10
 ell_max_WL = 5000
 ell_max_GC = 3000
 
+bias_selector = 'newBias'
+
 # xxx is z_max = 4 to be used everywhere?
 z_max_cl = 4.
 zsteps_cl = 500   # vincenzo uses 303
