@@ -70,7 +70,8 @@ z_mean = (z_plus + z_minus) / 2
 z_min = z_edges[0]
 z_max = z_edges[-1]
 
-print(f'Warning: z_edges[0] has been set to {z_edges[0]} to make it possible to compute k_limber at high ells and low z')
+print(
+    f'Warning: z_edges[0] has been set to {z_edges[0]} to make it possible to compute k_limber at high ells and low z')
 
 # configurations
 nbl = cfg.nbl
@@ -186,60 +187,6 @@ def wig(z, i):
     return result
 
 
-################## Cijs
-
-###### NEW BIAS ##################
-# bias
-b = np.zeros((zbins))
-for i in range(zbins):
-    b[i] = np.sqrt(1 + z_mean[i])
-
-
-# integrand
-def K_ij(z, wf_A, wf_B, i, j):
-    return wf_A(z, j) * wf_B(z, i) / (csmlb.E(z) * csmlb.r(z) ** 2)
-
-
-# def K_ij_GG(z, i, j):
-#     return wig(z, j) * wig(z, i) / (csmlb.E(z) * csmlb.r(z) ** 2)
-
-
-def cl_partial_integrand(z, wf_A, wf_B, i, j, ell):
-    return K_ij(z, wf_A, wf_B, i, j) * Pk_wrap(kl_wrap(ell, z), z)
-
-
-# integral
-@type_enforced.Enforcer
-def cl_partial_integral(wf_A, wf_B, i: int, j: int, zbin: int, ell):
-    result = c / H0 * quad(cl_partial_integrand, z_minus[zbin], z_plus[zbin], args=(wf_A, wf_B, i, j, ell))[0]
-    return result
-
-
-# @type_enforced.Enforcer
-# def Cij_GG_partial(i: int, j: int, zbin: int, ell):
-#     def integrand(z, i, j, ell):
-#         return K_ij_GG(z, i, j) * Pk_wrap(kl_wrap(ell, z), z)
-#
-#     result = c / H0 * quad(integrand, z_minus[zbin], z_plus[zbin], args=(i, j, ell))[0]
-#     return result
-
-
-# summing the partial integrals
-def sum_cl_partial_integral(wf_A, wf_B, i, j, ell):
-    result = 0
-    for zbin in range(zbins):
-        result += cl_partial_integral(wf_A, wf_B, i, j, zbin, ell) * b[zbin]
-    return result
-
-
-# def sum_Cij_GG(i, j, ell):
-#     result = 0
-#     for zbin in range(zbins):
-#         result += Cij_GG_partial(i, j, zbin, ell) * (b[zbin] ** 2)
-#     return result
-
-
-###### OLD BIAS ##################
 def Pk_wrap(k_ell, z, cosmo_classy=cosmo_classy, use_h_units=use_h_units, Pk_kind='nonlinear', argument_type='scalar'):
     """just a wrapper function to set some args to default values"""
     return csmlb.calculate_power(cosmo_classy, z, k_ell, use_h_units=use_h_units,
@@ -251,6 +198,38 @@ def kl_wrap(ell, z, use_h_units=use_h_units):
     return csmlb.k_limber(ell, z, use_h_units=use_h_units)
 
 
+###### NEW BIAS ##################
+# bias
+b = np.zeros((zbins))
+for i in range(zbins):
+    b[i] = np.sqrt(1 + z_mean[i])
+
+
+@type_enforced.Enforcer
+def K_ij(z, wf_A, wf_B, i: int, j: int):
+    return wf_A(z, j) * wf_B(z, i) / (csmlb.E(z) * csmlb.r(z) ** 2)
+
+
+def cl_partial_integrand(z, wf_A, wf_B, i: int, j: int, ell):
+    return K_ij(z, wf_A, wf_B, i, j) * Pk_wrap(kl_wrap(ell, z), z)
+
+
+@type_enforced.Enforcer
+def cl_partial_integral(wf_A, wf_B, i: int, j: int, zbin: int, ell):
+    result = c / H0 * quad(cl_partial_integrand, z_minus[zbin], z_plus[zbin], args=(wf_A, wf_B, i, j, ell))[0]
+    return result
+
+
+# summing the partial integrals
+@type_enforced.Enforcer
+def sum_cl_partial_integral(wf_A, wf_B, i: int, j: int, ell):
+    result = 0
+    for zbin in range(zbins):
+        result += cl_partial_integral(wf_A, wf_B, i, j, zbin, ell) * b[zbin]
+    return result
+
+
+###### OLD BIAS ##################
 def cl_integrand(z, wf_A, wf_B, i, j, ell):
     return ((wf_A(z, i) * wf_B(z, j)) / (csmlb.E(z) * csmlb.r(z) ** 2)) * Pk_wrap(kl_wrap(ell, z), z)
 
@@ -291,23 +270,6 @@ def reshape(array, npairs, name):
     np.savetxt("%s/output/Cij/%s/%s.txt" % (path, cfg.cl_out_folder, name), output_2D)
 
 
-###############################################################################
-
-# this is now useless. interpolations for the appropriate values will be performed later!
-# actually it's better to do it now, to compute 20 values instead of 999
-# ell_LL = np.genfromtxt("%s/output/ell_values/ell_WL.dat" %path)
-
-
-# ell_LG = np.genfromtxt("%s/output/ell_values/ell_XC.dat" %path)
-# ell_GG = np.genfromtxt("%s/output/ell_values/ell_GC.dat" %path)
-
-# these are Vincenzo's ell values: 
-# ell_min = 10
-# ell_max = 5000
-# ell_steps = 999
-# ell_values = np.linspace(ell_min, ell_max, ell_steps)
-
-
 def build_cl_array(cl_integral, wf_A, wf_B, ell_values, symmetric_flag: bool):
     cl_array = np.zeros((nbl, zbins, zbins))
 
@@ -342,23 +304,25 @@ def check_k_limber():
             if kl_wrap(ell, z) > 30:
                 print(ell, z, kl_wrap(ell, z))
 
+
 ###############################################################################
-################# end of function declaration
+################# end of function declaration #################################
 ###############################################################################
 
 C_LL_array = build_cl_array(cl_integral, wil, wil, ell_LL, symmetric_flag=True)
 # if bias_selector == "newBias":
-#     C_GG_array = build_cl_array(sum_cl_partial_integral, wig, wig, ell_GG, symmetric_flag=True)
-#     C_LG_array = build_cl_array(sum_cl_partial_integral, wil, wig, ell_LG, symmetric_flag=False)
+C_GG_array_newbias = build_cl_array(sum_cl_partial_integral, wig, wig, ell_GG, symmetric_flag=True)
+C_LG_array_newbias = build_cl_array(sum_cl_partial_integral, wil, wig, ell_LG, symmetric_flag=False)
 # elif bias_selector == "oldBias":
-#     C_GG_array = build_cl_array(ell_GG, sum_Cij_GG, symmetric_flag=True)
-#     C_LG_array = build_cl_array(ell_LG, sum_Cij_LG, symmetric_flag=False)
+C_GG_array_oldbias = build_cl_array(cl_integral, wig, wig, ell_GG, symmetric_flag=True)
+C_LG_array_oldbias = build_cl_array(cl_integral, wil, wig, ell_LG, symmetric_flag=False)
 # else:
 #     raise ValueError('bias_selector must be newBias or oldBias')
 
 # symmetrize
-# C_LL_array = fill_symmetric_Cls(C_LL_array)
-# C_GG_array = fill_symmetric_Cls(C_GG_array)
+C_LL_array = fill_symmetric_Cls(C_LL_array)
+C_GG_array_newbias = fill_symmetric_Cls(C_GG_array_newbias)
+C_GG_array_oldbias = fill_symmetric_Cls(C_GG_array_oldbias)
 
 # import Vincenzo to check:
 path_vinc = '/Users/davide/Documents/Lavoro/Programmi/common_data/vincenzo/Cij-NonLin-eNLA_15gen'
@@ -366,9 +330,9 @@ C_LL_vinc = np.genfromtxt(f'{path_vinc}/CijLL-LCDM-NonLin-eNLA.dat')
 C_LG_vinc = np.genfromtxt(f'{path_vinc}/CijLG-LCDM-NonLin-eNLA.dat')
 C_GG_vinc = np.genfromtxt(f'{path_vinc}/CijGG-LCDM-NonLin-eNLA.dat')
 
-dav = C_LL_array[:, 0, 0]
-vinc = C_LL_vinc
-ell_dav = ell_LL
+dav = C_GG_array[:, 0, 0]
+vinc = C_GG_vinc
+ell_dav = ell_GG
 ell_vinc = vinc[:, 0]
 
 # plot my array, vincenzo's cls and the % difference
@@ -404,7 +368,8 @@ plt.yscale('log')
 # save
 np.save(project_path / f"output/Cij/{cfg.cl_out_folder}/Cij_LL.npy", C_LL_array)
 np.save(project_path / f"output/Cij/{cfg.cl_out_folder}/Cij_LG.npy", C_LG_array)
-np.save(project_path / f"output/Cij/{cfg.cl_out_folder}/Cij_GG.npy", C_GG_array)
+np.save(project_path / f"output/Cij/{cfg.cl_out_folder}/Cij_GG_oldbias.npy", C_GG_array_oldbias)
+np.save(project_path / f"output/Cij/{cfg.cl_out_folder}/Cij_GG_newbias.npy", C_GG_array_newbias)
 
 print("saved")
 ############### reshape to compare with others ##########
