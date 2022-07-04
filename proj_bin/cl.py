@@ -250,32 +250,15 @@ def kl_wrap(ell, z, use_h_units=use_h_units):
     return csmlb.k_limber(ell, z, use_h_units=use_h_units)
 
 
-def Cij_LL_function(i, j, ell):
-    def integrand(z, i, j, ell):  # first argument is the integration variable
-        return ((wil(z, i) * wil(z, j)) / (csmlb.E(z) * csmlb.r(z) ** 2)) * Pk_wrap(kl_wrap(ell, z), z)
-
-    result = c / H0 * quad(integrand, z_min, z_max_cl, args=(i, j, ell))[0]
-    # check z_min, z_max xxx
-    return result
-
-
-def Cij_LG_function(i, j, ell):  # xxx GL or LG? OLD BIAS
-    def integrand(z, i, j, ell):  # first argument is the integration variable
-        return ((wil(z, i) * wig(z, j)) / (csmlb.E(z) * csmlb.r(z) ** 2)) * Pk_wrap(kl_wrap(ell, z), z)
-
-    result = c / H0 * quad(integrand, z_min, z_max_cl, args=(i, j, ell))[0]
-    return result
-
 def cl_integrand(z, wf_A, wf_B, i, j, ell):
-    return ((wig(z, i) * wig(z, j)) / (csmlb.E(z) * csmlb.r(z) ** 2)) * Pk_wrap(kl_wrap(ell, z), z)
+    return ((wf_A(z, i) * wf_B(z, j)) / (csmlb.E(z) * csmlb.r(z) ** 2)) * Pk_wrap(kl_wrap(ell, z), z)
 
 
-def Cij_GG_function(i, j, ell):  # OLD BIAS
-    def integrand(z, i, j, ell):  # first argument is the integration variable
-        return ((wig(z, i) * wig(z, j)) / (csmlb.E(z) * csmlb.r(z) ** 2)) * Pk_wrap(kl_wrap(ell, z), z)
-
-    result = c / H0 * quad(integrand, z_min, z_max_cl, args=(i, j, ell), full_output=True)[0]
-    # xxx maybe you can try with scipy.integrate.romberg
+def cl(wf_A, wf_B, i, j, ell):
+    """ when used with LG or GG, this implements the "old bias"
+    """
+    result = c / H0 * quad(cl_integrand, z_min, z_max_cl, args=(wf_A, wf_B, i, j, ell))[0]
+    # xxx maybe you can try with scipy.integrate.romberg?
     return result
 
 
@@ -323,7 +306,7 @@ def reshape(array, npairs, name):
 # ell_steps = 999
 # ell_values = np.linspace(ell_min, ell_max, ell_steps)
 
-def compute_cl(ell_values, Cij_function, symmetric_flag):
+def compute_cl(Cij_function, wf_A, wf_B, ell_values, symmetric_flag):
     Cij_array = np.zeros((nbl, zbins, zbins))
     k = 0
     for ell in ell_values:
@@ -336,27 +319,27 @@ def compute_cl(ell_values, Cij_function, symmetric_flag):
             for j in range(zbins):
                 if symmetric_flag == "yes":
                     if j >= i:  # C_LL and C_GG are symmetric!
-                        Cij_array[k, i, j] = Cij_function(i, j, ell)
+                        Cij_array[k, i, j] = Cij_function(wf_A, wf_B, i, j, ell)
                 else:
-                    Cij_array[k, i, j] = Cij_function(i, j, ell)
+                    Cij_array[k, i, j] = Cij_function(wf_A, wf_B, i, j, ell)
 
     return Cij_array
 
 
-def compute_cl_v2(ell_values, Cij_function, symmetric_flag):
+def compute_cl_v2(Cij_function, wf_A, wf_B, ell_values, symmetric_flag):
     Cij_array = np.zeros((nbl, zbins, zbins))
 
     if symmetric_flag == "yes":
         for ell_idx, ell_val in enumerate(ell_values):
             for i in range(zbins):
                 for j in range(i, zbins):
-                    Cij_array[ell_idx, i, j] = Cij_function(i, j, ell_val)
+                    Cij_array[ell_idx, i, j] = Cij_function(wf_A, wf_B, i, j, ell_val)
 
     else:
         for ell_idx, ell_val in enumerate(ell_values):
             for i in range(zbins):
                 for j in range(zbins):  # this line is different
-                    Cij_array[ell_idx, i, j] = Cij_function(i, j, ell_val)
+                    Cij_array[ell_idx, i, j] = Cij_function(wf_A, wf_B, i, j, ell_val)
 
     return Cij_array
 
@@ -383,37 +366,39 @@ def check_k_limber():
 
 # XXX I just computed LL, to be quicker
 # compute
-# C_LL_array = compute_cl(ell_LL, Cij_LL_function, symmetric_flag="yes")
-if bias_selector == "newBias":
-    C_GG_array = compute_cl(ell_GG, sum_Cij_GG, symmetric_flag="yes")
-    C_LG_array = compute_cl(ell_LG, sum_Cij_LG, symmetric_flag="no")
-elif bias_selector == "oldBias":
-    C_GG_array = compute_cl(ell_GG, sum_Cij_GG, symmetric_flag="yes")
-    C_LG_array = compute_cl(ell_LG, sum_Cij_LG, symmetric_flag="no")
-else:
-    raise ValueError('bias_selector must be newBias or oldBias')
+C_LL_array = compute_cl(cl, wil, wil, ell_LL, symmetric_flag="yes")
+# if bias_selector == "newBias":
+#     C_GG_array = compute_cl(ell_GG, sum_Cij_GG, symmetric_flag="yes")
+#     C_LG_array = compute_cl(ell_LG, sum_Cij_LG, symmetric_flag="no")
+# elif bias_selector == "oldBias":
+#     C_GG_array = compute_cl(ell_GG, sum_Cij_GG, symmetric_flag="yes")
+#     C_LG_array = compute_cl(ell_LG, sum_Cij_LG, symmetric_flag="no")
+# else:
+#     raise ValueError('bias_selector must be newBias or oldBias')
 
 # symmetrize
 # C_LL_array = fill_symmetric_Cls(C_LL_array)
-C_GG_array = fill_symmetric_Cls(C_GG_array)
+# C_GG_array = fill_symmetric_Cls(C_GG_array)
 
 # import Vincenzo to check:
 path_vinc = '/Users/davide/Documents/Lavoro/Programmi/common_data/vincenzo/Cij-NonLin-eNLA_15gen'
 C_LL_vinc = np.genfromtxt(f'{path_vinc}/CijLL-LCDM-NonLin-eNLA.dat')
-C_GL_vinc = np.genfromtxt(f'{path_vinc}/CijLG-LCDM-NonLin-eNLA.dat')
+C_LG_vinc = np.genfromtxt(f'{path_vinc}/CijLG-LCDM-NonLin-eNLA.dat')
 C_GG_vinc = np.genfromtxt(f'{path_vinc}/CijGG-LCDM-NonLin-eNLA.dat')
 
-dav = C_GG_array[:, 0, 0]
-vinc = C_GG_vinc
+dav = C_LL_array[:, 0, 0]
+vinc = C_LL_vinc
+ell_dav = ell_LL
+ell_vinc = vinc[:, 0]
 
 # plot my array, vincenzo's cls and the % difference
-cl_func = interp1d(vinc[:, 0], vinc[:, 1])
-cl_interp = cl_func(ell_GG)
+cl_func = interp1d(ell_vinc, vinc[:, 1])
+cl_interp = cl_func(ell_dav)
 diff = mm.percent_diff(dav, cl_interp)
 
-# plt.plot(ell_GG, dav, label='dav')
-# plt.plot(vinc[:, 0], vinc[:, 1], label='cl_vinc')
-plt.plot(ell_GG, diff, label='diff')
+plt.plot(ell_dav, dav, label='dav')
+plt.plot(vinc[:, 0], vinc[:, 1], label='cl_vinc')
+plt.plot(ell_dav, diff, label='diff')
 plt.legend()
 plt.xscale('log')
 plt.yscale('log')
