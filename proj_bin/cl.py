@@ -254,7 +254,7 @@ def cl_integrand(z, wf_A, wf_B, i, j, ell):
     return ((wf_A(z, i) * wf_B(z, j)) / (csmlb.E(z) * csmlb.r(z) ** 2)) * Pk_wrap(kl_wrap(ell, z), z)
 
 
-def cl(wf_A, wf_B, i, j, ell):
+def cl_integral(wf_A, wf_B, i, j, ell):
     """ when used with LG or GG, this implements the "old bias"
     """
     result = c / H0 * quad(cl_integrand, z_min, z_max_cl, args=(wf_A, wf_B, i, j, ell))[0]
@@ -306,40 +306,21 @@ def reshape(array, npairs, name):
 # ell_steps = 999
 # ell_values = np.linspace(ell_min, ell_max, ell_steps)
 
-def compute_cl(Cij_function, wf_A, wf_B, ell_values, symmetric_flag):
-    Cij_array = np.zeros((nbl, zbins, zbins))
-    k = 0
-    for ell in ell_values:
-        if ell > ell_values[0]:  # the first time k should remain 0
-            k = k + 1
-        print("k = %i, ell = %f" % (k, ell))
-        print("the program took %i seconds to run" % (time.perf_counter() - script_start))
 
-        for i in range(zbins):
-            for j in range(zbins):
-                if symmetric_flag == "yes":
-                    if j >= i:  # C_LL and C_GG are symmetric!
-                        Cij_array[k, i, j] = Cij_function(wf_A, wf_B, i, j, ell)
-                else:
-                    Cij_array[k, i, j] = Cij_function(wf_A, wf_B, i, j, ell)
-
-    return Cij_array
-
-
-def compute_cl_v2(Cij_function, wf_A, wf_B, ell_values, symmetric_flag):
+def build_cl_array(cl_integral, wf_A, wf_B, ell_values, symmetric_flag):
     Cij_array = np.zeros((nbl, zbins, zbins))
 
     if symmetric_flag == "yes":
         for ell_idx, ell_val in enumerate(ell_values):
             for i in range(zbins):
                 for j in range(i, zbins):
-                    Cij_array[ell_idx, i, j] = Cij_function(wf_A, wf_B, i, j, ell_val)
+                    Cij_array[ell_idx, i, j] = cl_integral(wf_A, wf_B, i, j, ell_val)
 
     else:
         for ell_idx, ell_val in enumerate(ell_values):
             for i in range(zbins):
                 for j in range(zbins):  # this line is different
-                    Cij_array[ell_idx, i, j] = Cij_function(wf_A, wf_B, i, j, ell_val)
+                    Cij_array[ell_idx, i, j] = cl_integral(wf_A, wf_B, i, j, ell_val)
 
     return Cij_array
 
@@ -366,15 +347,16 @@ def check_k_limber():
 
 # XXX I just computed LL, to be quicker
 # compute
-C_LL_array = compute_cl(cl, wil, wil, ell_LL, symmetric_flag="yes")
-# if bias_selector == "newBias":
-#     C_GG_array = compute_cl(ell_GG, sum_Cij_GG, symmetric_flag="yes")
-#     C_LG_array = compute_cl(ell_LG, sum_Cij_LG, symmetric_flag="no")
-# elif bias_selector == "oldBias":
-#     C_GG_array = compute_cl(ell_GG, sum_Cij_GG, symmetric_flag="yes")
-#     C_LG_array = compute_cl(ell_LG, sum_Cij_LG, symmetric_flag="no")
-# else:
-#     raise ValueError('bias_selector must be newBias or oldBias')
+
+
+if bias_selector == "newBias":
+    C_GG_array = build_cl_array(ell_GG, sum_Cij_GG, symmetric_flag="yes")
+    C_LG_array = build_cl_array(ell_LG, sum_Cij_LG, symmetric_flag="no")
+elif bias_selector == "oldBias":
+    C_GG_array = build_cl_array(ell_GG, sum_Cij_GG, symmetric_flag="yes")
+    C_LG_array = build_cl_array(ell_LG, sum_Cij_LG, symmetric_flag="no")
+else:
+    raise ValueError('bias_selector must be newBias or oldBias')
 
 # symmetrize
 # C_LL_array = fill_symmetric_Cls(C_LL_array)
