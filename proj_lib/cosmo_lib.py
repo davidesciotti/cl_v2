@@ -41,7 +41,7 @@ cosmo_par_dict = {'Omega_b': Ob0,
                   'h': h,
                   'output': 'mPk',
                   'z_pk': '0, 0.5, 1, 2, 3',
-                  'P_k_max_h/Mpc': 50,
+                  'P_k_max_h/Mpc': 70,
                   'non linear': 'halofit'}
 
 cosmo_classy = Class()

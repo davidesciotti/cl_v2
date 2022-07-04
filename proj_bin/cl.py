@@ -64,6 +64,9 @@ z_mean = (z_plus + z_minus) / 2
 z_min = z_edges[0]
 z_max = z_edges[-1]
 
+z_min = 0.03
+print(f'Warning: z_min has been set to {z_min} to make it possible to compute k_limber at high ells')
+
 # configurations
 nbl = cfg.nbl
 units = cfg.units
@@ -240,6 +243,8 @@ def kl_wrap(ell, z, use_h_units=use_h_units):
 
 def Cij_LL_function(i, j, ell):
     def integrand(z, i, j, ell):  # first argument is the integration variable
+        if kl_wrap(ell, z) > 10:
+            print(ell, z, kl_wrap(ell, z))
         return ((wil(z, i) * wil(z, j)) / (csmlb.E(z) * csmlb.r(z) ** 2)) * Pk_wrap(kl_wrap(ell, z), z)
 
     result = c / H0 * quad(integrand, z_min, z_max_cl, args=(i, j, ell))[0]
@@ -308,14 +313,14 @@ def reshape(array, npairs, name):
 # ell_steps = 999
 # ell_values = np.linspace(ell_min, ell_max, ell_steps)
 
-def compute_Cij(ell_values, Cij_function, symmetric_flag):
+def compute_cl(ell_values, Cij_function, symmetric_flag):
     Cij_array = np.zeros((nbl, zbins, zbins))
     k = 0
     for ell in ell_values:
         if ell > ell_values[0]:  # the first time k should remain 0
             k = k + 1
         print("k = %i, ell = %f" % (k, ell))
-        print("the program took %i seconds to run" % (time.time() - script_start))
+        print("the program took %i seconds to run" % (time.perf_counter() - script_start))
 
         for i in range(zbins):
             for j in range(zbins):
@@ -324,6 +329,24 @@ def compute_Cij(ell_values, Cij_function, symmetric_flag):
                         Cij_array[k, i, j] = Cij_function(i, j, ell)
                 else:
                     Cij_array[k, i, j] = Cij_function(i, j, ell)
+
+    return Cij_array
+
+
+def compute_cl_v2(ell_values, Cij_function, symmetric_flag):
+    Cij_array = np.zeros((nbl, zbins, zbins))
+
+    if symmetric_flag == "yes":
+        for ell_idx, ell_val in enumerate(ell_values):
+            for i in range(zbins):
+                for j in range(i, zbins):
+                    Cij_array[ell_idx, i, j] = Cij_function(i, j, ell_val)
+
+    else:
+        for ell_idx, ell_val in enumerate(ell_values):
+            for i in range(zbins):
+                for j in range(zbins):  # this line is different
+                    Cij_array[ell_idx, i, j] = Cij_function(i, j, ell_val)
 
     return Cij_array
 
@@ -338,13 +361,17 @@ def fill_symmetric_Cls(Cij_array):
     return Cij_array
 
 
+for ell in ell_LL:
+    for z in np.linspace(0.03, 4, 100):
+        if kl_wrap(ell, z) > 30:
+            print(ell, z, kl_wrap(ell, z))
 ###############################################################################
 ################# end of function declaration
 ###############################################################################
 
 # XXX I just computed LL, to be quicker
 # compute
-C_LL_array = compute_Cij(ell_LL, Cij_LL_function, symmetric_flag="yes")
+C_LL_array = compute_cl(ell_LL, Cij_LL_function, symmetric_flag="yes")
 # if bias_selector == "newBias":
 #     C_GG_array = compute_Cij(ell_GG, sum_Cij_GG, symmetric_flag = "yes") 
 #     C_LG_array = compute_Cij(ell_LG, sum_Cij_LG, symmetric_flag = "no")
@@ -359,22 +386,18 @@ C_LL_array = fill_symmetric_Cls(C_LL_array)
 # import Vincenzo to check:
 path_vinc = '/Users/davide/Documents/Lavoro/Programmi/common_data/vincenzo/Cij-NonLin-eNLA_15gen'
 cl_vinc = np.genfromtxt(f'{path_vinc}/CijLL-LCDM-NonLin-eNLA.dat')
-cl_dav_old = np.load(
-    '/Users/davide/Documents/Lavoro/Programmi/archive/Cij_davide/output/Cij/Cijs_v19_ALL/Cij_WFdavide_IA_newBias_nz10000/Cij_LL.npy')
 
-plt.plot(ell_LL, C_LL_array[:, 0, 0])
-plt.plot(ell_LL, cl_dav_old[:, 0, 0])
-plt.plot(cl_vinc[:, 0], cl_vinc[:, 1])
+# plot my array, vincenzo's cls and the % difference
+cl_func = interp1d(cl_vinc[:, 0], cl_vinc[:, 1])
+cl_interp = cl_func(ell_LL)
+diff = mm.percent_diff(C_LL_array[:, 0, 0], cl_interp)
 
-# check what is going on
-z_test = 0
-k_limb_arr = [Pk_wrap(ell, z_test) for ell in ell_LL]
-k_limb_arr_old = [csmlb.k_limber(ell, z_test, cosmo_astropy, use_h_units) for ell in ell_LL]
-
-plt.plot(ell_LL, k_limb_arr)
-plt.plot(ell_LL, k_limb_arr_old, '--')
-Pk_arr = [Pk_wrap(kl_wrap(ell, z_test), z_test) for ell in ell_LL]
-plt.plot(ell_LL, Pk_arr)
+plt.plot(ell_LL, C_LL_array[:, 0, 0], label='C_LL_array')
+plt.plot(cl_vinc[:, 0], cl_vinc[:, 1], label='cl_vinc')
+plt.plot(ell_LL, diff, label='diff')
+plt.legend()
+plt.xscale('log')
+plt.yscale('log')
 
 # test the Pk array
 # z_array_limber = np.linspace(0.001, 4, 100)
@@ -405,4 +428,4 @@ print("saved")
 # reshape(C_LG_array, 100, "C_LG_2D.txt")
 # reshape(C_GG_array, 55, "C_GG_2D.txt")
 
-print("the program took %i seconds to run" % (time.time() - script_start))
+print("the program took %i seconds to run" % (time.perf_counter() - script_start))
