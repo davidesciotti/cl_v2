@@ -27,7 +27,7 @@ import mpl_cfg as mpl_cfg
 
 # this project's modules
 import config.config as cfg
-import proj_lib.cosmo_lib as csmlb
+import proj_lib.cosmo_lib_old as csmlb
 
 # update plot pars
 rcParams = mpl_cfg.mpl_rcParams_dict
@@ -42,6 +42,7 @@ script_start = time.perf_counter()
 
 print('XXXXXX RECHECK Ox0 in cosmolib')
 print('XXXXXXXX RECHECK z_mean array (not z_median!)')
+print('NOTE: WE\'RE ASSUMING NOT TO WORK IN H_UNITS! E.g. r(z) IS IN Mpc, NOT Mpc/h')
 
 # TODO redefine integrals, optimize with simps or stuff
 # TODO import with numpy.interp1d, valid for jitted functios?
@@ -143,31 +144,6 @@ cosmo_classy = csmlb.cosmo_classy
 Pk = csmlb.calculate_power(cosmo_classy, z_array, k_array, use_h_units=True)
 
 Pk_interp = interp2d(k_array, z_array, Pk)
-
-# ell values
-
-# set the parameters, the functions wants a dict as input
-ell_cfg_dict_WL = {
-    'nbl': cfg.nbl,
-    'ell_min': cfg.ell_min,
-    'ell_max': cfg.ell_max_WL,
-}
-
-# change ell_max for GC
-ell_cfg_dict_GC = ell_cfg_dict_WL.copy()
-ell_cfg_dict_GC['ell_max'] = cfg.ell_max_GC
-
-# compute ells using the function in SSC_restructured_v2
-ell_LL, _ = ell_utils.ISTF_ells(ell_cfg_dict_WL)
-ell_GG, _ = ell_utils.ISTF_ells(ell_cfg_dict_GC)
-ell_LG = ell_GG.copy()
-
-cosmo_astropy = csmlb.cosmo_astropy
-
-
-#
-# k_limber_array = csmlb.k_limber(z=1, ell=ell_LL, cosmo_astropy=csmlb.cosmo_astropy, use_h_units=use_h_units)
-# P_array = [Pk(csmlb.k_limber(ell, z=1), z=1) for ell in ell_LL]
 
 
 # IA/noIA, old/new/multibinBias are decided in the import section at the beginning of the code
@@ -309,6 +285,25 @@ def check_k_limber():
 ################# end of function declaration #################################
 ###############################################################################
 
+# ell values
+# set the parameters, the functions wants a dict as input
+ell_cfg_dict_WL = {
+    'nbl': cfg.nbl,
+    'ell_min': cfg.ell_min,
+    'ell_max': cfg.ell_max_WL,
+}
+
+# change ell_max for GC
+ell_cfg_dict_GC = ell_cfg_dict_WL.copy()
+ell_cfg_dict_GC['ell_max'] = cfg.ell_max_GC
+
+# compute ells using the function in SSC_restructured_v2
+ell_LL, _ = ell_utils.ISTF_ells(ell_cfg_dict_WL)
+ell_GG, _ = ell_utils.ISTF_ells(ell_cfg_dict_GC)
+ell_LG = ell_GG.copy()
+
+
+
 C_LL_array = build_cl_array(cl_integral, wil, wil, ell_LL, symmetric_flag=True)
 # if bias_selector == "newBias":
 C_GG_array_newbias = build_cl_array(sum_cl_partial_integral, wig, wig, ell_GG, symmetric_flag=True)
@@ -367,7 +362,8 @@ plt.yscale('log')
 
 # save
 np.save(project_path / f"output/Cij/{cfg.cl_out_folder}/Cij_LL.npy", C_LL_array)
-np.save(project_path / f"output/Cij/{cfg.cl_out_folder}/Cij_LG.npy", C_LG_array)
+np.save(project_path / f"output/Cij/{cfg.cl_out_folder}/C_LG_newbias.npy", C_LG_array_newbias)
+np.save(project_path / f"output/Cij/{cfg.cl_out_folder}/C_LG_oldbias.npy", C_LG_array_oldbias)
 np.save(project_path / f"output/Cij/{cfg.cl_out_folder}/Cij_GG_oldbias.npy", C_GG_array_oldbias)
 np.save(project_path / f"output/Cij/{cfg.cl_out_folder}/Cij_GG_newbias.npy", C_GG_array_newbias)
 

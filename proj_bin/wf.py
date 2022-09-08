@@ -16,7 +16,7 @@ sys.path.append(str(project_path))
 sys.path.append(str(project_path.parent / 'common_data/common_config'))
 
 # project modules
-import proj_lib.cosmo_lib as csmlb
+import proj_lib.cosmo_lib_old as csmlb
 import config.config as cfg
 # general configuration modules
 import ISTF_fid_params as ISTF
