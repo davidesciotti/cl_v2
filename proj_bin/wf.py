@@ -372,8 +372,8 @@ assert 1 > 2
 ################# CAMB #####################
 
 # COMPUTE KERNELS
-zpoints = 10_000
-zpoints_simps = 10_000
+zpoints = 1_000
+zpoints_simps = 1_000
 z_array = np.linspace(z_min, z_max, zpoints)
 z_prime_array = np.linspace(z_min, z_max, zpoints_simps)
 
