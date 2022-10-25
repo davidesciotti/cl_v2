@@ -39,12 +39,7 @@ elif not useIA:
 else:
     raise ValueError('useIA must be True or False')
 
-
-
-
-
-
-# cl settings
+# ! cl settings
 nbl = 30
 ell_min = 10
 ell_max_WL = 5000
@@ -54,7 +49,7 @@ bias_selector = 'newBias'
 
 # xxx is z_max = 4 to be used everywhere?
 z_max_cl = 4.
-zsteps_cl = 500   # vincenzo uses 303
+zsteps_cl = 500  # vincenzo uses 303
 units = "1/Mpc"
 
 k_min = 10 ** (-5.442877)
@@ -65,7 +60,3 @@ whos_wf = 'marco'
 nz_WF_import = 10_000  # number of z points in the wf imported
 
 cl_out_folder = f'cl_v21/Cij_WF{whos_wf}_{IA_flag}_nz{zsteps_cl}'
-
-
-
-

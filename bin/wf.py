@@ -12,15 +12,15 @@ from scipy.interpolate import interp1d, interp2d
 
 project_path = Path.cwd().parent
 
-sys.path.append(str(project_path))
-sys.path.append(str(project_path.parent / 'common_data/common_config'))
 
 # project modules
+sys.path.append(str(project_path))
 import proj_lib.cosmo_lib_old as csmlb
 import config.config as cfg
 # general configuration modules
+sys.path.append(str(project_path.parent / 'common_data/common_config'))
 import ISTF_fid_params as ISTF
-import mpl_rcParams as mpl_rcParams
+import mpl_cfg as mpl_rcParams
 
 # update plot pars
 rcParams = mpl_rcParams.mpl_rcParams_dict
@@ -106,6 +106,8 @@ lumin_ratio = np.genfromtxt("%s/input/scaledmeanlum-E2Sa_EXTRAPOLATED.txt" % pro
 
 print('XXXXXX RECHECK Ox0 in cosmolib')
 print('XXXXXXXX RECHECK z_mean')
+
+use_camb = False
 
 
 ####################################### function definition
@@ -204,7 +206,7 @@ def wil_noIA_IST(z, i, wil_tilde_array):
 
 ########################################################### IA
 # @njit
-def W_IA(z_array, i):
+def W_IA(z_array, i_array):
     result = (H0 / c) * n_i_new(i_array, z_array).T * csmlb.E(z_array)
     return result
 
@@ -321,55 +323,50 @@ def wig_noBias_IST(z_array, i):  # with n_bar normalisation (anyway, n_bar = 1 m
 # TODO add check on i_array, i in niz must be an int, otherwise the function gets interpolated!!
 # TODO re-compute and check n_i(z), maybe compute it with scipy.special.erf
 
-# ! new code - just a test with CAMB WF
-################# CAMB #####################
-import camb
-from camb import model, initialpower
+if use_camb:
+    # ! new code - just a test with CAMB WF
+    ################# CAMB #####################
+    import camb
+    from camb import model, initialpower
 
-Om_c0 = ISTF.primary['Om_m0'] - ISTF.primary['Om_b0'] - ISTF.neutrino_params['Omega_nu']
-omch2 = Om_c0 * ISTF.primary['h_0'] ** 2
+    Om_c0 = ISTF.primary['Om_m0'] - ISTF.primary['Om_b0'] - ISTF.neutrino_params['Omega_nu']
+    omch2 = Om_c0 * ISTF.primary['h_0'] ** 2
 
-# Set up a new set of parameters for CAMB
-pars = camb.CAMBparams()
-# This function sets up CosmoMC-like settings, with one massive neutrino and helium set using BBN consistency
-pars.set_cosmology(H0=H0, ombh2=ISTF.primary['Om_bh2'], omch2=omch2,
-                   mnu=ISTF.extensions['m_nu'], omk=ISTF.extensions['Om_k0'], tau=ISTF.other_cosmo_params['tau'])
+    # Set up a new set of parameters for CAMB
+    pars = camb.CAMBparams()
+    # This function sets up CosmoMC-like settings, with one massive neutrino and helium set using BBN consistency
+    pars.set_cosmology(H0=H0, ombh2=ISTF.primary['Om_bh2'], omch2=omch2,
+                       mnu=ISTF.extensions['m_nu'], omk=ISTF.extensions['Om_k0'], tau=ISTF.other_cosmo_params['tau'])
 
-pars.InitPower.set_params(As=ISTF.other_cosmo_params['A_s'], ns=ISTF.primary['n_s'], r=0)
-pars.set_for_lmax(2500, lens_potential_accuracy=0)
+    pars.InitPower.set_params(As=ISTF.other_cosmo_params['A_s'], ns=ISTF.primary['n_s'], r=0)
+    pars.set_for_lmax(2500, lens_potential_accuracy=0)
 
-# start with one bin
-# wil = camb.sources.SplinedSourceWindow(source_type = 'lensing')
+    # start with one bin
+    # wil = camb.sources.SplinedSourceWindow(source_type = 'lensing')
 
-pars.SourceWindows = [
-    GaussianSourceWindow(redshift=0.001, source_type='counts', bias=b(0), sigma=0.04, dlog10Ndm=-0.2),
-    GaussianSourceWindow(redshift=0.5, source_type='lensing', sigma=0.07)]
+    pars.SourceWindows = [
+        GaussianSourceWindow(redshift=0.001, source_type='counts', bias=b(0), sigma=0.04, dlog10Ndm=-0.2),
+        GaussianSourceWindow(redshift=0.5, source_type='lensing', sigma=0.07)]
 
-results = camb.get_results(pars)
-cls = results.get_source_cls_dict()
+    results = camb.get_results(pars)
+    cls = results.get_source_cls_dict()
 
-# import vincenzo:
-path_vinc = '/Users/davide/Documents/Lavoro/Programmi/common_data/vincenzo/Cij-NonLin-eNLA_15gen'
-cl_vinc = np.genfromtxt(f'{path_vinc}/CijLL-LCDM-NonLin-eNLA.dat')
+    # import vincenzo:
+    path_vinc = '/Users/davide/Documents/Lavoro/Programmi/common_data/vincenzo/Cij-NonLin-eNLA_15gen'
+    cl_vinc = np.genfromtxt(f'{path_vinc}/CijLL-LCDM-NonLin-eNLA.dat')
 
-lmax = 2500
-ls = np.arange(2, lmax + 1)
-# for spectrum in ['W1xW1', 'W2xW2', 'W1xW2']:
-for spectrum in ['W1xW1']:
-    plt.loglog(ls, cls[spectrum][2: lmax + 1]*2*np.pi/(ls*(ls + 1)), label=spectrum)
-    plt.plot(cl_vinc[:, 0], cl_vinc[:, 1])
-plt.xlabel(r'$\ell$')
-plt.ylabel(r'$\ell(\ell+1)C_\ell/2\pi$')
-plt.legend()
+    lmax = 2500
+    ls = np.arange(2, lmax + 1)
+    # for spectrum in ['W1xW1', 'W2xW2', 'W1xW2']:
+    for spectrum in ['W1xW1']:
+        plt.loglog(ls, cls[spectrum][2: lmax + 1]*2*np.pi/(ls*(ls + 1)), label=spectrum)
+        plt.plot(cl_vinc[:, 0], cl_vinc[:, 1])
+    plt.xlabel(r'$\ell$')
+    plt.ylabel(r'$\ell(\ell+1)C_\ell/2\pi$')
+    plt.legend()
 
-# ! end new code - just a test with CAMB WF
+    # ! end new code - just a test with CAMB WF
 
-
-
-
-
-assert 1 > 2
-################# CAMB #####################
 
 # COMPUTE KERNELS
 zpoints = 1_000
