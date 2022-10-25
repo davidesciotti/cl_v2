@@ -243,7 +243,7 @@ def niz_norm(z, zbin_idx):
 
 niz_normalization_arr = np.asarray([niz_normalization(i, niz_unnormalized) for i in range(10)])
 
-z_num = 2000
+z_num = 200
 z_grid = np.linspace(z_min, z_max, z_num)
 
 # compute normalized and unnormalized n(z)
@@ -257,8 +257,16 @@ niz_unnormalized_array = np.insert(niz_unnormalized_array, 0, z_grid, axis=1)
 np.savetxt(f'{project_path}/output/niz/niz_normalized_nz{z_num}.txt', niz_normalized_array, header=f'z_values, n_1(z), n_2(z), ...')
 np.savetxt(f'{project_path}/output/niz/niz_unnormalized_nz{z_num}.txt', niz_unnormalized_array, header=f'z_values, n_1(z), n_2(z), ...')
 
-zbin = 1
-plt.plot(niz_unnormalized_array[:, 0], niz_unnormalized_array[:, zbin+1], label='niz_unnormalized_list')
-plt.plot(niz_normalized_array[:, 0], niz_normalized_array[:, zbin+1], label='niz_normalized_list')
+
+nz_array = [n(z) for z in z_grid]
+for zbin in range(zbins):
+    plt.plot(niz_normalized_array[:, 0], niz_normalized_array[:, zbin+1], label='niz_normalized')
+    plt.plot(niz_unnormalized_array[:, 0], niz_unnormalized_array[:, zbin+1], label='niz_unnormalized')
+plt.plot(z_grid, nz_array, label='n(z)')
+plt.legend()
+plt.grid()
+
+ng_tot = np.sum(niz_normalization_arr)
+ng_tot_test = np.trapz(nz_array, z_grid)
 
 print('done')

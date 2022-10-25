@@ -311,10 +311,13 @@ def wig_multiBinBias_IST(z_array, i_array):  # with n_bar normalisation (anyway,
     result = bz_array * (n_i_new(i_array, z_array) / n_bar[i_array]).T * H0 * csmlib.E(z_array) / c
     return result.T
 
+def wig_multiBinBias_IST_new(z_array, i_array, include_bias=True):  # with n_bar normalisation (anyway, n_bar = 1 more or less)
+    result = (n_i_new(i_array, z_array) / n_bar[i_array]).T * H0 * csmlib.E(z_array) / c
+    if include_bias:
+        result *= bz_array
+    return result.T
 
-@njit
-def wig_noBias_IST(z_array, i):  # with n_bar normalisation (anyway, n_bar = 1 more or less) ooo
-    return (n_i_new(i_array, z_array).T / n_bar[i]) * H0 * csmlib.E(z_array) / c
+
 
 
 # def wig_IST(z_array,i): # without n_bar normalisation
@@ -407,6 +410,10 @@ for z_idx, z_val in enumerate(z_array):
 print(f'simpson integral done in: {(time.perf_counter() - start):.2} s')
 
 wig_IST_arr = wig_multiBinBias_IST(z_array, i_array)
+wig_IST_arr_new = wig_multiBinBias_IST_new(z_array, i_array)
+assert np.allclose(wig_IST_arr, wig_IST_arr_new)
+assert 1 > 2
+
 wil_IA_IST_arr = wil_IA_IST(z_array, i_array, wil_tilde_array, Dz_array)
 
 plt.figure()
