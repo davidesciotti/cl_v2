@@ -16,10 +16,20 @@ project_path = Path.cwd().parent
 use_camb = False  # whether to use camb for the wf (doesn't work yet...)
 IA_model = 'eNLA'
 useIA = True
+zbins = 10
 
 load_external_niz = True
+# davide
 niz_path = f'{project_path}/output/niz'
 niz_filename = 'niz_normalized_nz2000.txt'
+# flagship
+niz_path = f'{project_path.parent}/common_data/vincenzo/SPV3_07_2022/Flagship_1/InputNz/Lenses/Flagship'
+niz_filename = f'niTab-EP{zbins}.dat'
+
+load_external_bias = True
+bias_path = f'{project_path.parent}/common_data/vincenzo/SPV3_07_2022/Flagship_1/InputNz/Lenses/Flagship'
+bias_filename = f'ngbTab-EP{zbins}.dat'
+
 
 if useIA:
     IA_flag = "IA"

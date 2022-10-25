@@ -144,6 +144,7 @@ def n(z):  # note: if you import n_i(z) this function doesn't get called!
 # niz_import = np.load("%s/output/WF/WFs_v2/niz.npy" % project_path)  # davide standard
 # n_i_import_2 = np.genfromtxt("%s/output/WF/%s/niz.txt" %(path, WFs_input_folder)) # davide standard with zcutVincenzo
 
+# ! load or compute n_i(z)
 if cfg.load_external_niz:
     niz_import = np.genfromtxt(f'{cfg.niz_path}/{cfg.niz_filename}')
     # store and remove the redshift values, ie the 1st column
@@ -278,23 +279,26 @@ def wil_IA_IST(z_array, i_array, wil_tilde_array, Dz_array):
 
 ###################### wig ###########################
 @njit
-def b(i):
-    return np.sqrt(1 + z_mean[i])
+def b(zbin_idx):
+    return np.sqrt(1 + z_mean[zbin_idx])
 
 
 @njit
-def b_new(z):
-    for i in range(zbins):
-        if z_minus[i] <= z < z_plus[i]:
-            return b(i)
+def b_new(z, bz_zbins):
+    """ bz_zbins is the array containing one bias value per redshift bin; this function copies this value for each z
+    in the bin range"""
+    for zbin_idx in range(zbins):
+        if z_minus[zbin_idx] <= z < z_plus[zbin_idx]:
+            return bz_zbins[zbin_idx]
         if z >= z_plus[-1]:  # max redshift bin
-            return b(9)
+            return bz_zbins[zbins - 1]
 
 
-def wig_IST(z_array, i_array, include_bias=True):
+def wig_IST(z_array, i_array, bias_zgrid, include_bias=True):
+    # assert bias_zgrid.shape == (z_array.shape[0],)
     result = (niz(i_array, z_array) / n_bar[i_array]).T * H0 * csmlib.E(z_array) / c
     if include_bias:
-        result *= bz_array
+        result = result * bias_zgrid
     return result.T
 
 
@@ -353,19 +357,27 @@ if cfg.use_camb:
 
     # ! end new code - just a test with CAMB WF
 
-# COMPUTE KERNELS
+# ! COMPUTE KERNELS
 
-# this is the final frid on which the wf are computed
-zpoints = 1_000
+# this is the final grid on which the wf are computed
+zpoints = 700
 z_array = np.linspace(z_min, z_max, zpoints)
 
-# this is the z grid used for all the other computations (ie integration)
-zpoints_simps = 1_000
+# this is the z grid used for all the other computations (i.e., integration)
+zpoints_simps = 700
 z_prime_array = np.linspace(z_min, z_max, zpoints_simps)
 
 print('precomputing arrays')
 Dz_array = np.asarray([D(z) for z in z_array])
-bz_array = np.asarray([b_new(z) for z in z_array])
+
+# ! load or import b_i(z)
+if cfg.load_external_bias:
+    print('Warning: loading external bias, this import is specific to the flagship1/2 ngbTab files')
+    bias_zbins = np.genfromtxt(f'{cfg.bias_path}/{cfg.bias_filename}')[1, :]
+    bias_zgrid = np.asarray([b_new(z, bias_zbins) for z in z_array])
+else:
+    bias_zbins = np.asarray([b(zbin_idx) for zbin_idx in range(zbins)])
+    bias_zgrid = np.asarray([b_new(z, bias_zbins) for z in z_array])
 
 # fill simpson integrand
 start = time.perf_counter()
@@ -383,7 +395,7 @@ for z_idx, z_val in enumerate(z_array):
     wil_tilde_array[z_idx, :] = simpson(integrand[z_prime_idx:, z_idx, :], z_prime_array[z_prime_idx:], axis=0)
 print(f'simpson integral done in: {(time.perf_counter() - start):.2} s')
 
-wig_IST_arr = wig_IST(z_array, i_array)
+wig_IST_arr = wig_IST(z_array, i_array, bias_zgrid=bias_zgrid, include_bias=True)
 wil_IA_IST_arr = wil_IA_IST(z_array, i_array, wil_tilde_array, Dz_array)
 
 plt.figure()
@@ -406,5 +418,28 @@ wig_IST_arr = np.insert(wig_IST_arr, 0, z_array, axis=1)
 
 np.save(project_path / f'output/WF/{WFs_output_folder}/wil_IA_IST_nz{zpoints}.npy', wil_IA_IST_arr)
 np.save(project_path / f'output/WF/{WFs_output_folder}/wig_IST_nz{zpoints}.npy', wig_IST_arr)
+
+# ! validation
+wig_pyccl = np.load('/Users/davide/Documents/Lavoro/Programmi/PyCCL_SSC/output/wf_and_cl_validation/wig_array.npy').T
+wil_pyccl = np.load('/Users/davide/Documents/Lavoro/Programmi/PyCCL_SSC/output/wf_and_cl_validation/wil_array.npy').T
+zvalues_pyccl = np.load('/Users/davide/Documents/Lavoro/Programmi/PyCCL_SSC/output/wf_and_cl_validation/ztab.npy').T
+
+wig_fs1 = np.genfromtxt(
+    '/Users/davide/Documents/Lavoro/Programmi/common_data/vincenzo/SPV3_07_2022/Flagship_1/KernelFun/WiGC-EP10.dat')
+wil_fs1 = np.genfromtxt(
+    '/Users/davide/Documents/Lavoro/Programmi/common_data/vincenzo/SPV3_07_2022/Flagship_1/KernelFun/WiWL-EP10.dat')
+zvalues_fs1 = wig_fs1[:, 0]
+
+# for zbin_idx in range(zbins):
+#     plt.plot(zvalues_pyccl, wig_pyccl[:, zbin_idx], label='wig pyccl')
+#     plt.plot(z_array, wig_IST_arr[:, zbin_idx + 1], label='wig davide', ls='--')
+# plt.legend()
+# plt.grid()
+
+for zbin_idx in range(zbins):
+    plt.plot(zvalues_fs1, wig_fs1[:, zbin_idx + 1], label='wig fs1')
+    plt.plot(z_array, wig_IST_arr[:, zbin_idx + 1], label='wig davide', ls='--')
+plt.legend()
+plt.grid()
 
 print("the script took %.2f seconds to run" % (time.perf_counter() - script_start))
