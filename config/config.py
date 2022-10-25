@@ -11,26 +11,15 @@ from matplotlib.cm import get_cmap
 
 project_path = Path.cwd().parent
 
-matplotlib.use('Qt5Agg')
 
-params = {'lines.linewidth': 3.5,
-          'font.size': 20,
-          'axes.labelsize': 'x-large',
-          'axes.titlesize': 'x-large',
-          'xtick.labelsize': 'x-large',
-          'ytick.labelsize': 'x-large',
-          'mathtext.fontset': 'stix',
-          'font.family': 'STIXGeneral',
-          'figure.figsize': (8, 8)
-          # 'backend': 'Qt5Agg'
-          }
-plt.rcParams.update(params)
-markersize = 10
-
-start_time = time.perf_counter()
-
+# ! wf settings
+use_camb = False  # whether to use camb for the wf (doesn't work yet...)
 IA_model = 'eNLA'
 useIA = True
+
+load_external_niz = False
+niz_path = f'{project_path}/input/niz'
+niz_filename = 'niz.txt'
 
 if useIA:
     IA_flag = "IA"

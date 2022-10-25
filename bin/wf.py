@@ -11,20 +11,27 @@ from scipy.integrate import quad, quad_vec, simpson
 from scipy.interpolate import interp1d, interp2d
 
 project_path = Path.cwd().parent
+home_path = Path.home()
 
+# general libraries
+sys.path.append(f'{project_path.parent}/common_data/common_lib')
+import my_module as mm
+import cosmo_lib as csmlib
+
+# general configurations
+sys.path.append(f'{project_path.parent}/common_data/common_config')
+import ISTF_fid_params as ISTF
+import mpl_cfg
+
+# config files
+sys.path.append(f'{project_path}/config')
+import config.config as cfg
 
 # project modules
-sys.path.append(str(project_path))
-import proj_lib.cosmo_lib_old as csmlb
-import config.config as cfg
-# general configuration modules
-sys.path.append(str(project_path.parent / 'common_data/common_config'))
-import ISTF_fid_params as ISTF
-import mpl_cfg as mpl_rcParams
+# sys.path.append(f'{project_path}/bin')
 
 # update plot pars
-rcParams = mpl_rcParams.mpl_rcParams_dict
-plt.rcParams.update(rcParams)
+plt.rcParams.update(mpl_cfg.mpl_rcParams_dict)
 matplotlib.use('Qt5Agg')
 
 ###############################################################################
@@ -93,7 +100,6 @@ beta_IA = ISTF.IA_free['beta_IA']
 C_IA = ISTF.IA_fixed['C_IA']
 
 IA_model = cfg.IA_model
-
 if IA_model == 'eNLA':
     beta_IA = 2.17
 elif IA_model == 'zNLA':
@@ -106,8 +112,6 @@ lumin_ratio = np.genfromtxt("%s/input/scaledmeanlum-E2Sa_EXTRAPOLATED.txt" % pro
 
 print('XXXXXX RECHECK Ox0 in cosmolib')
 print('XXXXXXXX RECHECK z_mean')
-
-use_camb = False
 
 
 ####################################### function definition
@@ -137,9 +141,14 @@ def n(z):  # note: if you import n_i(z) this function doesn't get called!
 # n_i_import = np.genfromtxt(path.parent / "common_data/vincenzo/14may/InputNz/niTab-EP10-RB.dat") # vincenzo, more recent (= davide standard, anzi no!!!!)
 # n_i_import = np.genfromtxt("C:/Users/dscio/Documents/Lavoro/Programmi/Cij_davide/output/WFs_v3_cut/niz_e-19cut.txt") # davide e-20cut
 n_i_import = np.load("%s/output/WF/WFs_v2/niz.npy" % project_path)  # davide standard
-
-
 # n_i_import_2 = np.genfromtxt("%s/output/WF/%s/niz.txt" %(path, WFs_input_folder)) # davide standard with zcutVincenzo
+
+n_i_import = np.load(f'{cfg.niz_path}/{cfg.niz_filename}')
+
+assert n_i_import.shape[1] == zbins, "n_i_import.shape[1] should be == zbins"
+
+
+
 
 
 def n_i_old(z, i):
@@ -178,7 +187,7 @@ n_i_new = interp2d(i_array, z_values_from_nz, n_i_import_cpy, kind="linear")
 
 # @njit
 def wil_tilde_integrand_old(z_prime, z, i):
-    return n_i_old(z_prime, i) * (1 - csmlb.r_tilde(z) / csmlb.r_tilde(z_prime))
+    return n_i_old(z_prime, i) * (1 - csmlib.r_tilde(z) / csmlib.r_tilde(z_prime))
 
 
 def wil_tilde_old(z, i):
@@ -192,7 +201,7 @@ def wil_tilde_integrand_vec(z_prime, z, i_array):
     vectorized version of wil_tilde_integrand, useful to fill up the computation of the integrand array for the simpson
     integration
     """
-    return n_i_new(i_array, z_prime).T * (1 - csmlb.r_tilde(z) / csmlb.r_tilde(z_prime))
+    return n_i_new(i_array, z_prime).T * (1 - csmlib.r_tilde(z) / csmlib.r_tilde(z_prime))
 
 
 # def wil_tilde_new(z, i_array):
@@ -201,13 +210,13 @@ def wil_tilde_integrand_vec(z_prime, z, i_array):
 
 
 def wil_noIA_IST(z, i, wil_tilde_array):
-    return ((3 / 2) * (H0 / c) * Om0 * (1 + z) * csmlb.r_tilde(z) * wil_tilde_array.T).T
+    return ((3 / 2) * (H0 / c) * Om0 * (1 + z) * csmlib.r_tilde(z) * wil_tilde_array.T).T
 
 
 ########################################################### IA
 # @njit
 def W_IA(z_array, i_array):
-    result = (H0 / c) * n_i_new(i_array, z_array).T * csmlb.E(z_array)
+    result = (H0 / c) * n_i_new(i_array, z_array).T * csmlib.E(z_array)
     return result
 
 
@@ -230,7 +239,7 @@ def F_IA(z):
 # use formula 23 for Om(z)
 # @njit
 def Om(z):
-    return Om0 * (1 + z) ** 3 / csmlb.E(z) ** 2
+    return Om0 * (1 + z) ** 3 / csmlib.E(z) ** 2
 
 
 # @njit
@@ -268,7 +277,7 @@ def b_new(z):
     for i in range(zbins):
         if z_minus[i] <= z < z_plus[i]:
             return b(i)
-        if z > z_plus[-1]:  # max redshift bin
+        if z >= z_plus[-1]:  # max redshift bin
             return b(9)
 
 
@@ -288,28 +297,28 @@ def b_new(z):
 
 @njit
 def wig_IST(z_array, i):  # with n_bar normalisation (anyway, n_bar = 1 more or less)
-    return b(i) * (n_i_new(i_array, z_array).T / n_bar[i]) * H0 * csmlb.E(z_array) / c
+    return b(i) * (n_i_new(i_array, z_array).T / n_bar[i]) * H0 * csmlib.E(z_array) / c
 
 
 # @njit
 def wig_multiBinBias_IST_old(z_array, i):  # with n_bar normalisation (anyway, n_bar = 1 more or less)
     # print(b_new(z), z) # debug
-    return b_new(z_array) * (n_i_new(i_array, z_array).T / n_bar[i]) * H0 * csmlb.E(z_array) / c
+    return b_new(z_array) * (n_i_new(i_array, z_array).T / n_bar[i]) * H0 * csmlib.E(z_array) / c
 
 
 # vectorized version
 def wig_multiBinBias_IST(z_array, i_array):  # with n_bar normalisation (anyway, n_bar = 1 more or less)
-    result = bz_array * (n_i_new(i_array, z_array) / n_bar[i_array]).T * H0 * csmlb.E(z_array) / c
+    result = bz_array * (n_i_new(i_array, z_array) / n_bar[i_array]).T * H0 * csmlib.E(z_array) / c
     return result.T
 
 
 @njit
 def wig_noBias_IST(z_array, i):  # with n_bar normalisation (anyway, n_bar = 1 more or less) ooo
-    return (n_i_new(i_array, z_array).T / n_bar[i]) * H0 * csmlb.E(z_array) / c
+    return (n_i_new(i_array, z_array).T / n_bar[i]) * H0 * csmlib.E(z_array) / c
 
 
 # def wig_IST(z_array,i): # without n_bar normalisation
-#     return b(i) * n_i_new(z_array, i_array).T *H0*csmlb.E(z_array)/c
+#     return b(i) * n_i_new(z_array, i_array).T *H0*csmlib.E(z_array)/c
 # xxx I'm already dividing by c!
 
 ########################################################################################################################
@@ -323,7 +332,7 @@ def wig_noBias_IST(z_array, i):  # with n_bar normalisation (anyway, n_bar = 1 m
 # TODO add check on i_array, i in niz must be an int, otherwise the function gets interpolated!!
 # TODO re-compute and check n_i(z), maybe compute it with scipy.special.erf
 
-if use_camb:
+if cfg.use_camb:
     # ! new code - just a test with CAMB WF
     ################# CAMB #####################
     import camb
@@ -359,7 +368,7 @@ if use_camb:
     ls = np.arange(2, lmax + 1)
     # for spectrum in ['W1xW1', 'W2xW2', 'W1xW2']:
     for spectrum in ['W1xW1']:
-        plt.loglog(ls, cls[spectrum][2: lmax + 1]*2*np.pi/(ls*(ls + 1)), label=spectrum)
+        plt.loglog(ls, cls[spectrum][2: lmax + 1] * 2 * np.pi / (ls * (ls + 1)), label=spectrum)
         plt.plot(cl_vinc[:, 0], cl_vinc[:, 1])
     plt.xlabel(r'$\ell$')
     plt.ylabel(r'$\ell(\ell+1)C_\ell/2\pi$')
@@ -367,11 +376,14 @@ if use_camb:
 
     # ! end new code - just a test with CAMB WF
 
-
 # COMPUTE KERNELS
+
+# this is the final frid on which the wf are computed
 zpoints = 1_000
-zpoints_simps = 1_000
 z_array = np.linspace(z_min, z_max, zpoints)
+
+# this is the z grid used for all the other computations (ie integration)
+zpoints_simps = 1_000
 z_prime_array = np.linspace(z_min, z_max, zpoints_simps)
 
 print('precomputing arrays')
@@ -384,7 +396,7 @@ integrand = np.zeros((z_prime_array.size, z_array.size, zbins))
 for z_idx, z_val in enumerate(z_array):
     # output order of wil_tilde_integrand_vec is: z_prime, i
     integrand[:, z_idx, :] = wil_tilde_integrand_vec(z_prime_array, z_val, i_array).T
-print('integrand wil_tilde_integrand with for loop filled in: ', time.perf_counter() - start)
+print(f'integrand wil_tilde_integrand with for loop filled in: {(time.perf_counter() - start):.2} s')
 
 start = time.perf_counter()
 wil_tilde_array = np.zeros((z_array.size, zbins))
@@ -392,7 +404,7 @@ for z_idx, z_val in enumerate(z_array):
     # take the closest value to the desired z - less than 0.1% difference with the desired z
     z_prime_idx = np.argmin(np.abs(z_prime_array - z_val))
     wil_tilde_array[z_idx, :] = simpson(integrand[z_prime_idx:, z_idx, :], z_prime_array[z_prime_idx:], axis=0)
-print('simpson integral done in: ', time.perf_counter() - start)
+print(f'simpson integral done in: {(time.perf_counter() - start):.2} s')
 
 wig_IST_arr = wig_multiBinBias_IST(z_array, i_array)
 wil_IA_IST_arr = wil_IA_IST(z_array, i_array, wil_tilde_array, Dz_array)
@@ -401,12 +413,14 @@ plt.figure()
 for i in range(zbins):
     plt.plot(z_array, wil_IA_IST_arr[:, i], label=f"wil i={i}")
 plt.legend()
+plt.grid()
 plt.show()
 
 plt.figure()
 for i in range(zbins):
     plt.plot(z_array, wig_IST_arr[:, i], label=f"wig i={i}")
 plt.legend()
+plt.grid()
 plt.show()
 
 # insert z array values in the 0-th column
