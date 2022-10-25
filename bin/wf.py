@@ -1,3 +1,4 @@
+import scipy
 import sys
 import time
 from pathlib import Path
@@ -137,34 +138,46 @@ def n(z):  # note: if you import n_i(z) this function doesn't get called!
 ################################## niz ##############################################
 
 # choose the cut XXX
-# n_i_import = np.genfromtxt("%s/input/Cij-NonLin-eNLA_15gen/niTab-EP10-RB00.dat" %path) # vincenzo (= davide standard, pare)
-# n_i_import = np.genfromtxt(path.parent / "common_data/vincenzo/14may/InputNz/niTab-EP10-RB.dat") # vincenzo, more recent (= davide standard, anzi no!!!!)
-# n_i_import = np.genfromtxt("C:/Users/dscio/Documents/Lavoro/Programmi/Cij_davide/output/WFs_v3_cut/niz_e-19cut.txt") # davide e-20cut
-n_i_import = np.load("%s/output/WF/WFs_v2/niz.npy" % project_path)  # davide standard
+# niz_import = np.genfromtxt("%s/input/Cij-NonLin-eNLA_15gen/niTab-EP10-RB00.dat" %path) # vincenzo (= davide standard, pare)
+# niz_import = np.genfromtxt(path.parent / "common_data/vincenzo/14may/InputNz/niTab-EP10-RB.dat") # vincenzo, more recent (= davide standard, anzi no!!!!)
+# niz_import = np.genfromtxt("C:/Users/dscio/Documents/Lavoro/Programmi/Cij_davide/output/WFs_v3_cut/niz_e-19cut.txt") # davide e-20cut
+# niz_import = np.load("%s/output/WF/WFs_v2/niz.npy" % project_path)  # davide standard
 # n_i_import_2 = np.genfromtxt("%s/output/WF/%s/niz.txt" %(path, WFs_input_folder)) # davide standard with zcutVincenzo
 
-n_i_import = np.load(f'{cfg.niz_path}/{cfg.niz_filename}')
+if cfg.load_external_niz:
+    niz_import = np.genfromtxt(f'{cfg.niz_path}/{cfg.niz_filename}')
+    # store and remove the redshift values, ie the 1st column
+    z_values_from_nz = niz_import[:, 0]
+    niz_import = niz_import[:, 1:]
 
-assert n_i_import.shape[1] == zbins, "n_i_import.shape[1] should be == zbins"
+    assert niz_import.shape[1] == zbins, "niz_import.shape[1] should be == zbins"
+
+    # normalization array
+    n_bar = scipy.integrate.simps(niz_import, z_values_from_nz, axis=0)
+    if not np.allclose(n_bar, np.ones(zbins), rtol=0.01, atol=0):
+        print('It looks like the input n_i(z) are not normalized (they differ from 1 by more than 1%)')
+
+else:
+    # TODO interface with module PERTURBED_NZ
+    pass
 
 
 
 
 
 def n_i_old(z, i):
-    n_i_interp = interp1d(n_i_import[:, 0], n_i_import[:, i + 1], kind="linear")
+    n_i_interp = interp1d(niz_import[:, 0], niz_import[:, i + 1], kind="linear")
     result_array = n_i_interp(z)  # z is considered as an array
     result = result_array.item()  # otherwise it would be a 0d array
     return result
 
 
-z_values_from_nz = n_i_import[:, 0]
 i_array = np.asarray(range(zbins))
-n_i_import_cpy = n_i_import.copy()[:, 1:]  # remove redshift column
+niz_import_cpy = niz_import.copy()  # remove redshift column
 
 # note: this is NOT an interpolation in i, which are just the bin indices and will NOT differ from the values 0, 1, 2
 # ... 9. The purpose is just to have a 2D vectorized callable.
-n_i_new = interp2d(i_array, z_values_from_nz, n_i_import_cpy, kind="linear")
+niz = interp2d(i_array, z_values_from_nz, niz_import_cpy, kind="linear")
 
 
 # note: the normalization of n(z) should be unimportant, here I compute a ratio
@@ -201,7 +214,7 @@ def wil_tilde_integrand_vec(z_prime, z, i_array):
     vectorized version of wil_tilde_integrand, useful to fill up the computation of the integrand array for the simpson
     integration
     """
-    return n_i_new(i_array, z_prime).T * (1 - csmlib.r_tilde(z) / csmlib.r_tilde(z_prime))
+    return niz(i_array, z_prime).T * (1 - csmlib.r_tilde(z) / csmlib.r_tilde(z_prime))
 
 
 # def wil_tilde_new(z, i_array):
@@ -216,7 +229,7 @@ def wil_noIA_IST(z, i, wil_tilde_array):
 ########################################################### IA
 # @njit
 def W_IA(z_array, i_array):
-    result = (H0 / c) * n_i_new(i_array, z_array).T * csmlib.E(z_array)
+    result = (H0 / c) * niz(i_array, z_array).T * csmlib.E(z_array)
     return result
 
 
@@ -297,22 +310,22 @@ def b_new(z):
 
 @njit
 def wig_IST(z_array, i):  # with n_bar normalisation (anyway, n_bar = 1 more or less)
-    return b(i) * (n_i_new(i_array, z_array).T / n_bar[i]) * H0 * csmlib.E(z_array) / c
+    return b(i) * (niz(i_array, z_array).T / n_bar[i]) * H0 * csmlib.E(z_array) / c
 
 
 # @njit
 def wig_multiBinBias_IST_old(z_array, i):  # with n_bar normalisation (anyway, n_bar = 1 more or less)
     # print(b_new(z), z) # debug
-    return b_new(z_array) * (n_i_new(i_array, z_array).T / n_bar[i]) * H0 * csmlib.E(z_array) / c
+    return b_new(z_array) * (niz(i_array, z_array).T / n_bar[i]) * H0 * csmlib.E(z_array) / c
 
 
 # vectorized version
 def wig_multiBinBias_IST(z_array, i_array):  # with n_bar normalisation (anyway, n_bar = 1 more or less)
-    result = bz_array * (n_i_new(i_array, z_array) / n_bar[i_array]).T * H0 * csmlib.E(z_array) / c
+    result = bz_array * (niz(i_array, z_array) / n_bar[i_array]).T * H0 * csmlib.E(z_array) / c
     return result.T
 
 def wig_multiBinBias_IST_new(z_array, i_array, include_bias=True):  # with n_bar normalisation (anyway, n_bar = 1 more or less)
-    result = (n_i_new(i_array, z_array) / n_bar[i_array]).T * H0 * csmlib.E(z_array) / c
+    result = (niz(i_array, z_array) / n_bar[i_array]).T * H0 * csmlib.E(z_array) / c
     if include_bias:
         result *= bz_array
     return result.T
@@ -321,7 +334,7 @@ def wig_multiBinBias_IST_new(z_array, i_array, include_bias=True):  # with n_bar
 
 
 # def wig_IST(z_array,i): # without n_bar normalisation
-#     return b(i) * n_i_new(z_array, i_array).T *H0*csmlib.E(z_array)/c
+#     return b(i) * niz(z_array, i_array).T *H0*csmlib.E(z_array)/c
 # xxx I'm already dividing by c!
 
 ########################################################################################################################

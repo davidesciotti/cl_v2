@@ -17,9 +17,9 @@ use_camb = False  # whether to use camb for the wf (doesn't work yet...)
 IA_model = 'eNLA'
 useIA = True
 
-load_external_niz = False
-niz_path = f'{project_path}/input/niz'
-niz_filename = 'niz.txt'
+load_external_niz = True
+niz_path = f'{project_path}/output/niz'
+niz_filename = 'niz_normalized_nz2000.txt'
 
 if useIA:
     IA_flag = "IA"

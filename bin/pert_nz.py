@@ -54,6 +54,7 @@ z_0 = z_m / np.sqrt(2)
 z_mean = (z_plus + z_minus) / 2
 z_min = z_edges[0]
 z_max = z_edges[-1]
+z_max = 4.
 
 f_out = ISTF.photoz_pdf['f_out']
 sigma_b = ISTF.photoz_pdf['sigma_b']
@@ -243,7 +244,7 @@ def niz_norm(z, zbin_idx):
 
 niz_normalization_arr = np.asarray([niz_normalization(i, niz_unnormalized) for i in range(10)])
 
-z_num = 200
+z_num = 2000
 z_grid = np.linspace(z_min, z_max, z_num)
 
 # compute normalized and unnormalized n(z)
