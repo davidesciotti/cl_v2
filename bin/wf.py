@@ -26,7 +26,7 @@ import mpl_cfg
 
 # config files
 sys.path.append(f'{project_path}/config')
-import config.config as cfg
+import config_wlcl as cfg
 
 # project modules
 # sys.path.append(f'{project_path}/bin')

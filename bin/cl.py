@@ -12,21 +12,24 @@ import type_enforced
 
 # get project directory
 project_path = Path.cwd().parent
-sys.path.append(str(project_path.parent))
 
 # general libraries
-import common_data.common_lib.my_module as mm
-import common_data.common_lib.cosmo_lib as csmlb
+sys.path.append(f'{project_path.parent}/common_data/common_lib')
+import my_module as mm
+import cosmo_lib as csmlb
 
 # general configuration modules
-import common_data.common_config.ISTF_fid_params as ISTF
-import common_data.common_config.mpl_cfg as mpl_cfg
+sys.path.append(f'{project_path.parent}/common_data/common_config')
+import ISTF_fid_params as ISTF
+import mpl_cfg as mpl_cfg
 
 # this project's modules
-import cl_v2.config.config as cfg
+sys.path.append(f'{project_path}/cl_v2/config')
+import config_wlcl as cfg
 
 # ell_values
-import SSC_restructured_v2.bin.ell_values_running as ell_utils
+sys.path.append(f'{project_path.parent}/SSC_restructured_v2/bin')
+import ell_values_running as ell_utils
 
 # update plot pars
 rcParams = mpl_cfg.mpl_rcParams_dict
@@ -73,11 +76,13 @@ z_max = z_edges[-1]
 print(
     f'Warning: z_edges[0] has been set to {z_edges[0]} to make it possible to compute k_limber at high ells and low z')
 
-# configurations
+# ! configurations
 nbl = cfg.nbl
 units = cfg.units
 z_max_cl = cfg.z_max_cl
+zbins = cfg.zbins
 
+# TODO this naming is not the best: use h units means that I use or want them?
 if units == 'h/Mpc':
     use_h_units = True
 elif units == '1/Mpc':
@@ -88,41 +93,27 @@ else:
 if not cfg.useIA:
     raise ValueError('cfg.useIA must True for the moment')
 
-# TODO this naming is not the best: use h units means that I use or want them?
-if units == '1/Mpc':
-    use_h_units = False
-elif units == 'h/Mpc':
-    use_h_units = True
-else:
-    raise ValueError('units must be 1/Mpc or h/Mpc')
 
-path_WF = project_path.parent / f"common_data/everyones_WF_from_Gdrive/{cfg.whos_wf}"
-path_WF = f'{cfg.wf_folder}/{cfg.wf_filename}'
-
-if cfg.whos_wf == 'vincenzo':
-    raise ValueError('vincenzos WF seem to have some problem!')
-    wil_import = np.genfromtxt(f"{path_WF}/wil_vincenzo_{IA_flag}_IST_nz{cfg.nz_WF_import}.dat")
-    wig_import = np.genfromtxt(f"{path_WF}/wig_vincenzo_IST_nz{cfg.nz_WF_import}.dat")
-if cfg.whos_wf == 'marco':
-    wil_import = np.load(f"{path_WF}/wil_mar_bia{ISTF.IA_free['beta_IA']}_IST_nz{cfg.nz_WF_import}.npy")
-    wig_import = np.load(f"{path_WF}/wig_mar_IST_nz{cfg.nz_WF_import}.npy")
-else:
-    # raise ValueError('whos_wf must be "davide", "marco", "vincenzo" or "sylvain"')
-    raise ValueError('whos_wf must be "marco", at the moment')
+wil_import = np.genfromtxt(f'{cfg.wil_path}/{cfg.wil_filename}')
+wig_import = np.genfromtxt(f'{cfg.wig_path}/{cfg.wig_filename}')
+# extract z values and remove z column
+z_wf_array = wil_import[:, 0]
+wil_import = wil_import[:, 1:]
+wig_import = wig_import[:, 1:]
 
 bias_selector = cfg.bias_selector
 
 # plot WF to check - they must be IST, not PySSC!
-"""
-for i in range(10):
-    plt.plot(wil_import[:, 0], wil_import[:, i+1], label='wil_import')
-plt.title('wil_import')
+if cfg.check_plot_wf:
+    for i in range(zbins):
+        plt.plot(wil_import[:, 0], wil_import[:, i+1], label='wil_import')
+    plt.title('wil_import')
 
-plt.figure()
-for i in range(10):
-    plt.plot(wig_import[:, 0], wig_import[:, i+1], label='wig_import')
-plt.title('wig_import')
-"""
+    plt.figure()
+    for i in range(zbins):
+        plt.plot(wig_import[:, 0], wig_import[:, i+1], label='wig_import')
+    plt.title('wig_import')
+
 
 # just a check on the nz of the WF, not very important
 assert wig_import[:, 0].size == cfg.nz_WF_import, 'the number of z points in the kernels is not the required one'

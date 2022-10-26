@@ -44,8 +44,10 @@ else:
 
 # ! cl settings
 load_external_wf = True
-wf_path = f'{project_path.parent}/common_data/vincenzo/SPV3_07_2022/Flagship_{flagship_version}/KernelFun/Lenses/Flagship'
-wf_filename = f'ngbTab-{EP_or_ED}{zbins}.dat'
+wil_path = f'{project_path.parent}/common_data/vincenzo/SPV3_07_2022/Flagship_{flagship_version}/KernelFun'
+wil_filename = f'WiWL-{EP_or_ED}{zbins}.dat'
+wig_path = wil_path
+wig_filename = f'WiGC-{EP_or_ED}{zbins}.dat'
 
 
 nbl = 30
