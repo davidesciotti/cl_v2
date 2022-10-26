@@ -17,19 +17,23 @@ use_camb = False  # whether to use camb for the wf (doesn't work yet...)
 IA_model = 'eNLA'
 useIA = True
 zbins = 10
+EP_or_ED = 'EP'
+flagship_version = 1
+
 
 load_external_niz = True
 # davide
 niz_path = f'{project_path}/output/niz'
 niz_filename = 'niz_normalized_nz2000.txt'
 # flagship
-niz_path = f'{project_path.parent}/common_data/vincenzo/SPV3_07_2022/Flagship_1/InputNz/Lenses/Flagship'
-niz_filename = f'niTab-EP{zbins}.dat'
+niz_path = f'{project_path.parent}/common_data/vincenzo/SPV3_07_2022/Flagship_{flagship_version}/InputNz/Lenses/Flagship'
+niz_filename = f'niTab-{EP_or_ED}{zbins}.dat'
 
 load_external_bias = True
-bias_path = f'{project_path.parent}/common_data/vincenzo/SPV3_07_2022/Flagship_1/InputNz/Lenses/Flagship'
-bias_filename = f'ngbTab-EP{zbins}.dat'
-
+include_bias = True
+bias_selector = 'step_function'  # or "top-hat", or simply "constant?"
+bias_path = f'{project_path.parent}/common_data/vincenzo/SPV3_07_2022/Flagship_{flagship_version}/InputNz/Lenses/Flagship'
+bias_filename = f'ngbTab-{EP_or_ED}{zbins}.dat'
 
 if useIA:
     IA_flag = "IA"
@@ -39,12 +43,16 @@ else:
     raise ValueError('useIA must be True or False')
 
 # ! cl settings
+load_external_wf = True
+wf_path = f'{project_path.parent}/common_data/vincenzo/SPV3_07_2022/Flagship_{flagship_version}/KernelFun/Lenses/Flagship'
+wf_filename = f'ngbTab-{EP_or_ED}{zbins}.dat'
+
+
 nbl = 30
 ell_min = 10
 ell_max_WL = 5000
 ell_max_GC = 3000
 
-bias_selector = 'newBias'
 
 # xxx is z_max = 4 to be used everywhere?
 z_max_cl = 4.

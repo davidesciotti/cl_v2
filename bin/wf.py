@@ -395,7 +395,7 @@ for z_idx, z_val in enumerate(z_array):
     wil_tilde_array[z_idx, :] = simpson(integrand[z_prime_idx:, z_idx, :], z_prime_array[z_prime_idx:], axis=0)
 print(f'simpson integral done in: {(time.perf_counter() - start):.2} s')
 
-wig_IST_arr = wig_IST(z_array, i_array, bias_zgrid=bias_zgrid, include_bias=True)
+wig_IST_arr = wig_IST(z_array, i_array, bias_zgrid=bias_zgrid, include_bias=cfg.include_bias)
 wil_IA_IST_arr = wil_IA_IST(z_array, i_array, wil_tilde_array, Dz_array)
 
 plt.figure()
@@ -436,9 +436,17 @@ zvalues_fs1 = wig_fs1[:, 0]
 # plt.legend()
 # plt.grid()
 
+plt.figure()
 for zbin_idx in range(zbins):
     plt.plot(zvalues_fs1, wig_fs1[:, zbin_idx + 1], label='wig fs1')
     plt.plot(z_array, wig_IST_arr[:, zbin_idx + 1], label='wig davide', ls='--')
+plt.legend()
+plt.grid()
+
+plt.figure()
+for zbin_idx in range(zbins):
+    plt.plot(zvalues_fs1, wil_fs1[:, zbin_idx + 1], label='wil fs1')
+    plt.plot(z_array, wil_IA_IST_arr[:, zbin_idx + 1], label='wil davide', ls='--')
 plt.legend()
 plt.grid()
 

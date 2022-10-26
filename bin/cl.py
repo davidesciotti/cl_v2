@@ -12,22 +12,21 @@ import type_enforced
 
 # get project directory
 project_path = Path.cwd().parent
-sys.path.append(str(project_path))
-sys.path.append(str(project_path.parent / 'common_data/common_config'))
-sys.path.append(str(project_path.parent / 'SSC_restructured_v2/bin'))
-sys.path.append(str(project_path.parent / 'SSC_restructured_v2/lib'))
+sys.path.append(str(project_path.parent))
 
-# from SSC_restructured_v2
-import my_module as mm
-import ell_values_running as ell_utils
+# general libraries
+import common_data.common_lib.my_module as mm
+import common_data.common_lib.cosmo_lib as csmlb
 
 # general configuration modules
-import ISTF_fid_params as ISTF
-import mpl_cfg as mpl_cfg
+import common_data.common_config.ISTF_fid_params as ISTF
+import common_data.common_config.mpl_cfg as mpl_cfg
 
 # this project's modules
-import config.config as cfg
-import proj_lib.cosmo_lib_old as csmlb
+import cl_v2.config.config as cfg
+
+# ell_values
+import SSC_restructured_v2.bin.ell_values_running as ell_utils
 
 # update plot pars
 rcParams = mpl_cfg.mpl_rcParams_dict
@@ -98,6 +97,8 @@ else:
     raise ValueError('units must be 1/Mpc or h/Mpc')
 
 path_WF = project_path.parent / f"common_data/everyones_WF_from_Gdrive/{cfg.whos_wf}"
+path_WF = f'{cfg.wf_folder}/{cfg.wf_filename}'
+
 if cfg.whos_wf == 'vincenzo':
     raise ValueError('vincenzos WF seem to have some problem!')
     wil_import = np.genfromtxt(f"{path_WF}/wil_vincenzo_{IA_flag}_IST_nz{cfg.nz_WF_import}.dat")
@@ -139,10 +140,7 @@ z_array = np.linspace(z_min, z_max_cl, cfg.zsteps_cl)
 
 # Pk
 cosmo_classy = csmlb.cosmo_classy
-
-#
 Pk = csmlb.calculate_power(cosmo_classy, z_array, k_array, use_h_units=True)
-
 Pk_interp = interp2d(k_array, z_array, Pk)
 
 

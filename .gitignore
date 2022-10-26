@@ -5,3 +5,9 @@ config/.DS_Store
 output/.DS_Store
 output/WF/.DS_Store
 config/.DS_Store
+*.pyc
+*.iml
+*.pyc
+output/.DS_Store
+output/WF/.DS_Store
+config/.DS_Store
