@@ -25,8 +25,8 @@ import ISTF_fid_params as ISTF
 import mpl_cfg
 
 # config files
-sys.path.append(f'{project_path}/config')
-import config_wlcl as cfg
+# sys.path.append(f'{project_path}/config')
+from ../config import config_wlcl as cfg
 
 # project modules
 # sys.path.append(f'{project_path}/bin')

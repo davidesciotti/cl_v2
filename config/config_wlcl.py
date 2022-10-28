@@ -49,15 +49,17 @@ wil_filename = f'WiWL-{EP_or_ED}{zbins}.dat'
 wig_path = wil_path
 wig_filename = f'WiGC-{EP_or_ED}{zbins}.dat'
 
+check_plot_wf = False
 
 nbl = 30
 ell_min = 10
 ell_max_WL = 5000
 ell_max_GC = 3000
+ell_recipe = 'ISTF'
 
 
 # xxx is z_max = 4 to be used everywhere?
-z_max_cl = 4.
+z_max_cl = 2.9
 zsteps_cl = 500  # vincenzo uses 303
 units = "1/Mpc"
 

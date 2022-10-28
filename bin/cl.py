@@ -105,18 +105,16 @@ bias_selector = cfg.bias_selector
 
 # plot WF to check - they must be IST, not PySSC!
 if cfg.check_plot_wf:
-    for i in range(zbins):
-        plt.plot(wil_import[:, 0], wil_import[:, i+1], label='wil_import')
+    for zbin_idx in range(zbins):
+        plt.plot(z_wf_array, wil_import[:, zbin_idx], label='wil_import')
     plt.title('wil_import')
+    plt.grid()
 
     plt.figure()
-    for i in range(zbins):
-        plt.plot(wig_import[:, 0], wig_import[:, i+1], label='wig_import')
+    for zbin_idx in range(zbins):
+        plt.plot(z_wf_array, wig_import[:, zbin_idx], label='wig_import')
     plt.title('wig_import')
-
-
-# just a check on the nz of the WF, not very important
-assert wig_import[:, 0].size == cfg.nz_WF_import, 'the number of z points in the kernels is not the required one'
+    plt.grid()
 
 k_array = np.logspace(np.log10(cfg.k_min), np.log10(cfg.k_max), cfg.k_points)
 z_array = np.linspace(z_min, z_max_cl, cfg.zsteps_cl)
@@ -136,17 +134,17 @@ Pk_interp = interp2d(k_array, z_array, Pk)
 
 
 # IA/noIA, old/new/multibinBias are decided in the import section at the beginning of the code
-def wil(z, i):
-    # it's i+1: first column is for the redshift array
-    wil_interp = interp1d(wil_import[:, 0], wil_import[:, i + 1], kind="linear")
+def wil(z, zbin_idx):
+    # it's zbin_idx + 1: first column is for the redshift array
+    wil_interp = interp1d(z_wf_array, wil_import[:, zbin_idx], kind="linear")
     result_array = wil_interp(z)  # z is considered as an array
     result = result_array.item()  # otherwise it would be a 0d array
     return result
 
 
-def wig(z, i):
-    # it's i+1: first column is for the redshift array
-    wig_interp = interp1d(wig_import[:, 0], wig_import[:, i + 1], kind="linear")
+def wig(z, zbin_idx):
+    # it's zbin_idx + 1: first column is for the redshift array
+    wig_interp = interp1d(z_wf_array, wig_import[:, zbin_idx], kind="linear")
     result_array = wig_interp(z)  # z is considered as an array
     result = result_array.item()  # otherwise it would be a 0d array
     return result
@@ -159,15 +157,15 @@ def Pk_wrap(k_ell, z, cosmo_classy=cosmo_classy, use_h_units=use_h_units, Pk_kin
 
 
 def kl_wrap(ell, z, use_h_units=use_h_units):
-    """another simpe wrapper function, so as not to have to rewrite use_h_units=use_h_units"""
+    """another simple wrapper function, so as not to have to rewrite use_h_units=use_h_units"""
     return csmlb.k_limber(ell, z, use_h_units=use_h_units)
 
 
 ###### NEW BIAS ##################
 # bias
-b = np.zeros((zbins))
+bias_array = np.zeros((zbins))
 for i in range(zbins):
-    b[i] = np.sqrt(1 + z_mean[i])
+    bias_array[i] = np.sqrt(1 + z_mean[i])
 
 
 @type_enforced.Enforcer
@@ -185,12 +183,13 @@ def cl_partial_integral(wf_A, wf_B, i: int, j: int, zbin: int, ell):
     return result
 
 
+print('THIS BIAS IS WRONG; MOREOVER, AM I NOT INCLUDING IT IN THE KERNELS?')
 # summing the partial integrals
 @type_enforced.Enforcer
 def sum_cl_partial_integral(wf_A, wf_B, i: int, j: int, ell):
     result = 0
     for zbin in range(zbins):
-        result += cl_partial_integral(wf_A, wf_B, i, j, zbin, ell) * b[zbin]
+        result += cl_partial_integral(wf_A, wf_B, i, j, zbin, ell) * bias_array[zbin]
     return result
 
 
@@ -287,8 +286,8 @@ ell_cfg_dict_GC = ell_cfg_dict_WL.copy()
 ell_cfg_dict_GC['ell_max'] = cfg.ell_max_GC
 
 # compute ells using the function in SSC_restructured_v2
-ell_LL, _ = ell_utils.ISTF_ells(ell_cfg_dict_WL)
-ell_GG, _ = ell_utils.ISTF_ells(ell_cfg_dict_GC)
+ell_LL, _ = ell_utils.compute_ells(nbl=cfg.nbl, ell_min=cfg.ell_min, ell_max=cfg.ell_max_WL, recipe=cfg.ell_recipe)
+ell_GG, _ = ell_utils.compute_ells(nbl=cfg.nbl, ell_min=cfg.ell_min, ell_max=cfg.ell_max_GC, recipe=cfg.ell_recipe)
 ell_LG = ell_GG.copy()
 
 
