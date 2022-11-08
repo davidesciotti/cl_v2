@@ -26,11 +26,11 @@ load_external_niz = True
 niz_path = f'{project_path}/output/niz'
 niz_filename = 'niz_normalized_nz2000.txt'
 # flagship
-niz_path = f'{project_path.parent}/common_data/vincenzo/SPV3_07_2022/Flagship_{flagship_version}/InputNz/Lenses/Flagship'
-niz_filename = f'niTab-{EP_or_ED}{zbins}.dat'
+# niz_path = f'{project_path.parent}/common_data/vincenzo/SPV3_07_2022/Flagship_{flagship_version}/InputNz/Lenses/Flagship'
+# niz_filename = f'niTab-{EP_or_ED}{zbins}.dat'
 
-load_external_bias = True
-include_bias = True
+load_external_bias = False
+include_bias = False
 bias_selector = 'step_function'  # or "top-hat", or simply "constant?"
 bias_path = f'{project_path.parent}/common_data/vincenzo/SPV3_07_2022/Flagship_{flagship_version}/InputNz/Lenses/Flagship'
 bias_filename = f'ngbTab-{EP_or_ED}{zbins}.dat'

@@ -26,7 +26,7 @@ import mpl_cfg
 
 # config files
 # sys.path.append(f'{project_path}/config')
-from ../config import config_wlcl as cfg
+from config import config_wlcl as cfg
 
 # project modules
 # sys.path.append(f'{project_path}/bin')
@@ -85,7 +85,7 @@ z_plus = z_edges[1:]
 z_0 = z_m / np.sqrt(2)
 z_mean = (z_plus + z_minus) / 2
 z_min = z_edges[0]
-z_max = z_edges[-1]
+z_max = 4
 
 f_out = ISTF.photoz_pdf['f_out']
 sigma_b = ISTF.photoz_pdf['sigma_b']
@@ -128,10 +128,8 @@ def pph(z, z_p):
 
 
 @njit
-def n(z):  # note: if you import n_i(z) this function doesn't get called!
+def n(z):
     result = (z / z_0) ** 2 * np.exp(-(z / z_0) ** (3 / 2))
-    # TODO normalize the distribution or not?
-    # result = result*(30/0.4242640687118783) # normalising the distribution?
     return result
 
 
@@ -416,8 +414,8 @@ plt.show()
 wil_IA_IST_arr = np.insert(wil_IA_IST_arr, 0, z_array, axis=1)
 wig_IST_arr = np.insert(wig_IST_arr, 0, z_array, axis=1)
 
-np.save(project_path / f'output/WF/{WFs_output_folder}/wil_IA_IST_nz{zpoints}.npy', wil_IA_IST_arr)
-np.save(project_path / f'output/WF/{WFs_output_folder}/wig_IST_nz{zpoints}.npy', wig_IST_arr)
+np.save(f'{project_path}/output/WF/{WFs_output_folder}/wil_IA_IST_nz{zpoints}.npy', wil_IA_IST_arr)
+np.save(f'{project_path}/output/WF/{WFs_output_folder}/wig_IST_nz{zpoints}.npy', wig_IST_arr)
 
 # ! validation
 wig_pyccl = np.load('/Users/davide/Documents/Lavoro/Programmi/PyCCL_SSC/output/wf_and_cl_validation/wig_array.npy').T
