@@ -1,3 +1,5 @@
+import warnings
+
 import scipy
 import sys
 import time
@@ -6,10 +8,11 @@ from pathlib import Path
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
-from camb.sources import GaussianSourceWindow
+import pyccl as ccl
 from numba import njit
-from scipy.integrate import quad, quad_vec, simpson
+from scipy.integrate import quad, quad_vec, simpson, dblquad, simps
 from scipy.interpolate import interp1d, interp2d
+from scipy.special import erf
 
 project_path = Path.cwd().parent
 home_path = Path.home()
@@ -76,21 +79,21 @@ Ob0 = ISTF.primary['Om_b0']
 
 gamma = ISTF.extensions['gamma']
 
-z_edges = ISTF.photoz_bins['zbin_edges']
-z_m = ISTF.photoz_bins['z_median']
+z_edges = ISTF.photoz_bins['all_zbin_edges']
+z_median = ISTF.photoz_bins['z_median']
 zbins = ISTF.photoz_bins['zbins']
+z_minus = ISTF.photoz_bins['z_minus']
+z_plus = ISTF.photoz_bins['z_plus']
 
-z_minus = z_edges[:-1]
-z_plus = z_edges[1:]
-z_0 = z_m / np.sqrt(2)
+z_0 = z_median / np.sqrt(2)
 z_mean = (z_plus + z_minus) / 2
 z_min = z_edges[0]
 z_max = 4
+sqrt2 = np.sqrt(2)
 
 f_out = ISTF.photoz_pdf['f_out']
 c_b, z_b, sigma_b = ISTF.photoz_pdf['c_b'], ISTF.photoz_pdf['z_b'], ISTF.photoz_pdf['sigma_b']
 c_o, z_o, sigma_o = ISTF.photoz_pdf['c_o'], ISTF.photoz_pdf['z_o'], ISTF.photoz_pdf['sigma_o']
-
 
 A_IA = ISTF.IA_free['A_IA']
 eta_IA = ISTF.IA_free['eta_IA']
@@ -106,10 +109,13 @@ elif IA_model == 'zNLA':
 simps_z_step_size = 1e-4
 
 n_bar = np.genfromtxt("%s/output/n_bar.txt" % project_path)
+n_gal = ISTF.other_survey_specs['n_gal']
 lumin_ratio = np.genfromtxt("%s/input/scaledmeanlum-E2Sa_EXTRAPOLATED.txt" % project_path)
 
-print('XXXXXX RECHECK Ox0 in cosmolib')
-print('XXXXXXXX RECHECK z_mean')
+warnings.warn('RECHECK Ox0 in cosmolib')
+warnings.warn('RECHECK z_mean')
+warnings.warn('n_gal prefactor has an effect? Do I normalize the distribution somewhere?')
+warnings.warn('Stefanos niz are different from mines! Check the unnormalized ones')
 
 
 ####################################### function definition
@@ -126,18 +132,12 @@ def pph(z, z_p):
 
 @njit
 def n(z):
-    result = (z / z_0) ** 2 * np.exp(-(z / z_0) ** (3 / 2))
+    result = n_gal * (z / z_0) ** 2 * np.exp(-(z / z_0) ** (3 / 2))
     return result
 
 
-################################## niz ##############################################
+################################## n_i(z) ##############################################
 
-# choose the cut XXX
-# niz_import = np.genfromtxt("%s/input/Cij-NonLin-eNLA_15gen/niTab-EP10-RB00.dat" %path) # vincenzo (= davide standard, pare)
-# niz_import = np.genfromtxt(path.parent / "common_data/vincenzo/14may/InputNz/niTab-EP10-RB.dat") # vincenzo, more recent (= davide standard, anzi no!!!!)
-# niz_import = np.genfromtxt("C:/Users/dscio/Documents/Lavoro/Programmi/Cij_davide/output/WFs_v3_cut/niz_e-19cut.txt") # davide e-20cut
-# niz_import = np.load("%s/output/WF/WFs_v2/niz.npy" % project_path)  # davide standard
-# n_i_import_2 = np.genfromtxt("%s/output/WF/%s/niz.txt" %(path, WFs_input_folder)) # davide standard with zcutVincenzo
 
 # ! load or compute n_i(z)
 if cfg.load_external_niz:
@@ -153,9 +153,7 @@ if cfg.load_external_niz:
     if not np.allclose(n_bar, np.ones(zbins), rtol=0.01, atol=0):
         print('It looks like the input n_i(z) are not normalized (they differ from 1 by more than 1%)')
 
-else:
-    # TODO interface with module PERTURBED_NZ
-    pass
+
 
 
 def n_i_old(z, i):
@@ -175,17 +173,96 @@ niz = interp2d(i_array, z_values_from_nz, niz_import_cpy, kind="linear")
 
 # note: the normalization of n(z) should be unimportant, here I compute a ratio
 # where n(z) is present both at the numerator and denominator!
-# as a function, including (of not) the ie-20 cut
-# def n_i(z,i):
-#     integrand   = lambda z_p, z : n(z) * pph(z,z_p)
-#     numerator   = quad(integrand, z_minus[i], z_plus[i], args = (z))
-#     denominator = dblquad(integrand, z_min, z_max, z_minus[i], z_plus[i])
-# #    denominator = nquad(integrand, [[z_minus[i], z_plus[i]],[z_min, z_max]] )
-# #    return numerator[0]/denominator[0]*3 to have quad(n_i, 0, np.inf = nbar_b/20 = 3)
-#     result = numerator[0]/denominator[0]
-#     # if result < 6e-19: # remove these 2 lines if you don't want the cut
-#     #     result = 0
-#     return result
+
+def n_i(z, i):
+    """with quad"""
+    integrand = lambda z_p, z: n(z) * pph(z, z_p)
+    numerator = quad(integrand, z_minus[i], z_plus[i], args=(z))[0]
+    denominator = dblquad(integrand, z_min, z_max, z_minus[i], z_plus[i])[0]
+    return numerator / denominator
+
+
+zp_points = 500
+zp_num_per_bin = int(zp_points / zbins)
+zp_grid = np.empty(0)
+zp_bin_grid = np.zeros((zbins, zp_num_per_bin))
+for i in range(zbins):
+    zp_bin_grid[i, :] = np.linspace(z_edges[i], z_edges[i + 1], zp_num_per_bin)
+
+def niz_unnormalized_simps(z, zbin_idx, pph):
+    """numerator of Eq. (112) of ISTF, with simpson integration"""
+    assert type(zbin_idx) == int, 'zbin_idx must be an integer'
+    niz_unnorm_integrand = pph(zp_bin_grid[zbin_idx, :], z)
+    niz_unnorm_integral = simps(y=niz_unnorm_integrand, x=zp_bin_grid[zbin_idx, :])
+    niz_unnorm_integral *= n(z)
+    return niz_unnorm_integral
+
+
+def niz_unnormalized(z, zbin_idx, pph):
+    """
+    :param z: float, does not accept an array. Same as above, but with quad_vec
+    """
+    assert type(zbin_idx) == int, 'zbin_idx must be an integer'
+    niz_unnorm = quad_vec(pph, z_edges[zbin_idx], z_edges[zbin_idx + 1], args=(z,))[0]
+    niz_unnorm *= n(z)
+    return niz_unnorm
+
+
+def niz_normalization(zbin_idx, niz_unnormalized_func, pph):
+    assert type(zbin_idx) == int, 'zbin_idx must be an integer'
+    return quad(niz_unnormalized_func, z_edges[0], z_edges[-1], args=(zbin_idx, pph))[0]
+
+
+def normalize_niz(niz_unnorm_arr, z_arr):
+    """ much more convenient; uses simps, and accepts as input an array of shape (zbins, z_points)"""
+    norm_factor = simps(niz_unnorm_arr, z_arr)
+    niz_norm = (niz_unnorm_arr.T / norm_factor).T
+    return niz_norm
+
+
+def niz_normalized(z, zbin_idx, pph):
+    """this is a wrapper function which normalizes the result.
+    The if-else is needed not to compute the normalization for each z, but only once for each zbin_idx
+    Note that the niz_unnormalized function is not vectorized in z (its 1st argument)
+    """
+
+    if type(z) == float or type(z) == int:
+        return niz_unnormalized(z, zbin_idx, pph) / niz_normalization(zbin_idx, niz_unnormalized, pph)
+
+    elif type(z) == np.ndarray:
+        niz_unnormalized_arr = np.asarray([niz_unnormalized(z_value, zbin_idx, pph) for z_value in z])
+        return niz_unnormalized_arr / niz_normalization(zbin_idx, niz_unnormalized, pph)
+
+    else:
+        raise TypeError('z must be a float, an int or a numpy array')
+
+
+def niz_unnorm_stef(z, i):
+    """the one used by Stefano in the PyCCL notebook"""
+    addendum_1 = erf((z - z_o - c_o * z_edges[i]) / sqrt2 / (1 + z) / sigma_o)
+    addendum_2 = erf((z - z_o - c_o * z_edges[i + 1]) / sqrt2 / (1 + z) / sigma_o)
+    addendum_3 = erf((z - z_b - c_b * z_edges[i]) / sqrt2 / (1 + z) / sigma_b)
+    addendum_4 = erf((z - z_b - c_b * z_edges[i + 1]) / sqrt2 / (1 + z) / sigma_b)
+
+    result = n(z) * 1 / 2 / c_o / c_b * \
+             (c_b * f_out * (addendum_1 - addendum_2) + c_o * (1 - f_out) * (addendum_3 - addendum_4))
+    return result
+
+
+z_arr = np.linspace(0, 4, 300)
+niz_unnormalized_dav = np.asarray([niz_unnormalized(z_arr, zbin_idx, pph) for zbin_idx in range(zbins)])
+niz_unnormalized_stef = np.asarray([niz_unnorm_stef(z_arr, zbin_idx) for zbin_idx in range(zbins)])
+niz_unnormalized_dav_2 = niz(np.array(range(10)), z_arr).T
+
+# normalize nz: this should be the denominator of Eq. (112) of IST:f
+norm_factor_stef = simps(niz_unnormalized_stef, z_arr)
+
+niz_normalized_dav = normalize_niz(niz_unnormalized_dav, z_arr)
+niz_normalized_stef = normalize_niz(niz_unnormalized_stef, z_arr)
+niz_normalized_dav_2 = normalize_niz(niz_unnormalized_dav_2, z_arr)
+
+
+assert 1 > 2, 'stop here'
 
 
 ################################## end niz ##############################################
@@ -302,7 +379,13 @@ def wig_IST(z_array, i_array, bias_zgrid, include_bias=True):
 ########################################################################################################################
 
 ###### WF with PyCCL ######
-import pyccl as ccl
+
+
+Om_c0 = ISTF_fid.primary['Om_m0'] - ISTF_fid.primary['Om_b0']
+cosmo = ccl.Cosmology(Omega_c=Om_c0, Omega_b=ISTF_fid.primary['Om_b0'], w0=ISTF_fid.primary['w_0'],
+                      wa=ISTF_fid.primary['w_a'], h=ISTF_fid.primary['h_0'], sigma8=ISTF_fid.primary['sigma_8'],
+                      n_s=ISTF_fid.primary['n_s'], m_nu=ISTF_fid.extensions['m_nu'],
+                      Omega_k=1 - (Om_c0 + ISTF_fid.primary['Om_b0']) - ISTF_fid.extensions['Om_Lambda0'])
 
 IAFILE = np.genfromtxt(project_path / 'input/scaledmeanlum-E2Sa.dat')
 FIAzNoCosmoNoGrowth = -1 * 1.72 * 0.0134 * (1 + IAFILE[:, 0]) ** (-0.41) * IAFILE[:, 1] ** 2.17
@@ -316,9 +399,6 @@ wil = [ccl.WeakLensingTracer(cosmo, dndz=(ztab, nziEuclid[iz]), ia_bias=(IAFILE[
        for iz in range(zbins)]
 wig = [ccl.tracers.NumberCountsTracer(cosmo, has_rsd=False, dndz=(ztab, nziEuclid[iz]), bias=(ztab, b_array),
                                       mag_bias=None) for iz in range(zbins)]
-
-
-
 
 assert 1 > 2
 
