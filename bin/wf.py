@@ -88,12 +88,9 @@ z_min = z_edges[0]
 z_max = 4
 
 f_out = ISTF.photoz_pdf['f_out']
-sigma_b = ISTF.photoz_pdf['sigma_b']
-sigma_o = ISTF.photoz_pdf['sigma_o']
-c_b = ISTF.photoz_pdf['c_b']
-c_o = ISTF.photoz_pdf['c_o']
-z_b = ISTF.photoz_pdf['z_b']
-z_o = ISTF.photoz_pdf['z_o']
+c_b, z_b, sigma_b = ISTF.photoz_pdf['c_b'], ISTF.photoz_pdf['z_b'], ISTF.photoz_pdf['sigma_b']
+c_o, z_o, sigma_o = ISTF.photoz_pdf['c_o'], ISTF.photoz_pdf['z_o'], ISTF.photoz_pdf['sigma_o']
+
 
 A_IA = ISTF.IA_free['A_IA']
 eta_IA = ISTF.IA_free['eta_IA']
@@ -304,6 +301,26 @@ def wig_IST(z_array, i_array, bias_zgrid, include_bias=True):
 ########################################################################################################################
 ########################################################################################################################
 
+###### WF with PyCCL ######
+import pyccl as ccl
+
+IAFILE = np.genfromtxt(project_path / 'input/scaledmeanlum-E2Sa.dat')
+FIAzNoCosmoNoGrowth = -1 * 1.72 * 0.0134 * (1 + IAFILE[:, 0]) ** (-0.41) * IAFILE[:, 1] ** 2.17
+FIAz = FIAzNoCosmoNoGrowth * (cosmo.cosmo.params.Omega_c + cosmo.cosmo.params.Omega_b) / ccl.growth_factor(cosmo, 1 / (
+        1 + IAFILE[:, 0]))
+
+b_array = np.asarray([bias(z, zbins_edges) for z in ztab])
+
+# compute the kernels
+wil = [ccl.WeakLensingTracer(cosmo, dndz=(ztab, nziEuclid[iz]), ia_bias=(IAFILE[:, 0], FIAz), use_A_ia=False)
+       for iz in range(zbins)]
+wig = [ccl.tracers.NumberCountsTracer(cosmo, has_rsd=False, dndz=(ztab, nziEuclid[iz]), bias=(ztab, b_array),
+                                      mag_bias=None) for iz in range(zbins)]
+
+
+
+
+assert 1 > 2
 
 # using Sylvain's z
 # z = np.genfromtxt("C:/Users/dscio/Documents/Lavoro/Programmi/SSC_comparison/input/windows_sylvain/nz_source/z.txt")
