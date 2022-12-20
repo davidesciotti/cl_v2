@@ -1,5 +1,5 @@
 zcut: yes 
 nbar normalization: yes 
 n(z) normalization: no 
-bias: multi-bin 
+b_of_z: multi-bin 
 niz: davide

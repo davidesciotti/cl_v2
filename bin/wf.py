@@ -50,13 +50,13 @@ WFs_output_folder = f"WFs_v16_{cfg.IA_model}_may22"
 
 # saving the options (ooo) in a text file:
 with open("%s/output/WF/%s/options.txt" % (project_path, WFs_output_folder), "w") as text_file:
-    print("zcut: yes \nnbar normalization: yes \nn(z) normalization: no \nbias: multi-bin \nniz: davide",
+    print("zcut: yes \nnbar normalization: yes \nn(z) normalization: no \nb_of_z: multi-bin \nniz: davide",
           file=text_file)
 
 # interpolating to speed up
 # with z cut following Vincenzo's niz
 # with n_bar normalisation
-# with "multi-bin" bias
+# with "multi-bin" b_of_z
 # with niz from Vincenzo
 
 
@@ -108,9 +108,9 @@ elif IA_model == 'zNLA':
 
 simps_z_step_size = 1e-4
 
-n_bar = np.genfromtxt("%s/output/n_bar.txt" % project_path)
+n_bar = np.genfromtxt(f"{project_path}/output/n_bar.txt")
 n_gal = ISTF.other_survey_specs['n_gal']
-lumin_ratio = np.genfromtxt("%s/input/scaledmeanlum-E2Sa_EXTRAPOLATED.txt" % project_path)
+lumin_ratio = np.genfromtxt(f"{project_path}/input/scaledmeanlum-E2Sa_EXTRAPOLATED.txt")
 
 warnings.warn('RECHECK Ox0 in cosmolib')
 warnings.warn('RECHECK z_mean')
@@ -262,7 +262,6 @@ niz_normalized_stef = normalize_niz(niz_unnormalized_stef, z_arr)
 niz_normalized_dav_2 = normalize_niz(niz_unnormalized_dav_2, z_arr)
 
 
-assert 1 > 2, 'stop here'
 
 
 ################################## end niz ##############################################
@@ -350,28 +349,27 @@ def wil_IA_IST(z_array, i_array, wil_tilde_array, Dz_array):
 
 
 ###################### wig ###########################
-@njit
-def b(zbin_idx):
+def b_of_z(zbin_idx):
     return np.sqrt(1 + z_mean[zbin_idx])
 
 
-@njit
-def b_new(z, bz_zbins):
-    """ bz_zbins is the array containing one bias value per redshift bin; this function copies this value for each z
+def stepwise_bias(z, bz_values):
+    """bz_values is the array containing one bz value per redshift bin; this function copies this value for each z
     in the bin range"""
     for zbin_idx in range(zbins):
         if z_minus[zbin_idx] <= z < z_plus[zbin_idx]:
-            return bz_zbins[zbin_idx]
+            return bz_values[zbin_idx]
         if z >= z_plus[-1]:  # max redshift bin
-            return bz_zbins[zbins - 1]
+            return bz_values[zbins - 1]
 
 
-def wig_IST(z_array, i_array, bias_zgrid, include_bias=True):
+def wig_IST(z_array, i_array, bias_zgrid):
     # assert bias_zgrid.shape == (z_array.shape[0],)
-    result = (niz(i_array, z_array) / n_bar[i_array]).T * H0 * csmlib.E(z_array) / c
-    if include_bias:
-        result = result * bias_zgrid
+    result = (niz(i_array, z_array) / n_bar[i_array]).T * H0 * csmlib.E(z_array) / c * bias_zgrid
     return result.T
+
+
+z_arr = np.linspace(0, 4, 200)
 
 
 ########################################################################################################################
@@ -381,26 +379,32 @@ def wig_IST(z_array, i_array, bias_zgrid, include_bias=True):
 ###### WF with PyCCL ######
 
 
-Om_c0 = ISTF_fid.primary['Om_m0'] - ISTF_fid.primary['Om_b0']
-cosmo = ccl.Cosmology(Omega_c=Om_c0, Omega_b=ISTF_fid.primary['Om_b0'], w0=ISTF_fid.primary['w_0'],
-                      wa=ISTF_fid.primary['w_a'], h=ISTF_fid.primary['h_0'], sigma8=ISTF_fid.primary['sigma_8'],
-                      n_s=ISTF_fid.primary['n_s'], m_nu=ISTF_fid.extensions['m_nu'],
-                      Omega_k=1 - (Om_c0 + ISTF_fid.primary['Om_b0']) - ISTF_fid.extensions['Om_Lambda0'])
+Om_c0 = ISTF.primary['Om_m0'] - ISTF.primary['Om_b0']
+cosmo = ccl.Cosmology(Omega_c=Om_c0, Omega_b=ISTF.primary['Om_b0'], w0=ISTF.primary['w_0'],
+                      wa=ISTF.primary['w_a'], h=ISTF.primary['h_0'], sigma8=ISTF.primary['sigma_8'],
+                      n_s=ISTF.primary['n_s'], m_nu=ISTF.extensions['m_nu'],
+                      Omega_k=1 - (Om_c0 + ISTF.primary['Om_b0']) - ISTF.extensions['Om_Lambda0'])
 
 IAFILE = np.genfromtxt(project_path / 'input/scaledmeanlum-E2Sa.dat')
+warnings.warn('could this cause some difference?')
+IAFILE = lumin_ratio
 FIAzNoCosmoNoGrowth = -1 * 1.72 * 0.0134 * (1 + IAFILE[:, 0]) ** (-0.41) * IAFILE[:, 1] ** 2.17
 FIAz = FIAzNoCosmoNoGrowth * (cosmo.cosmo.params.Omega_c + cosmo.cosmo.params.Omega_b) / ccl.growth_factor(cosmo, 1 / (
         1 + IAFILE[:, 0]))
 
-b_array = np.asarray([bias(z, zbins_edges) for z in ztab])
+bz_values = np.asarray([b_of_z(zbin_idx) for zbin_idx in range(zbins)])
+bias_array = np.asarray([stepwise_bias(z, bz_values) for z in z_arr])
+niz_unnormalized = np.asarray([niz_unnorm_stef(z_arr, zbin_idx) for zbin_idx in range(zbins)])
+niz_normalized = normalize_niz(niz_unnormalized, z_arr)
+
 
 # compute the kernels
-wil = [ccl.WeakLensingTracer(cosmo, dndz=(ztab, nziEuclid[iz]), ia_bias=(IAFILE[:, 0], FIAz), use_A_ia=False)
-       for iz in range(zbins)]
-wig = [ccl.tracers.NumberCountsTracer(cosmo, has_rsd=False, dndz=(ztab, nziEuclid[iz]), bias=(ztab, b_array),
-                                      mag_bias=None) for iz in range(zbins)]
+wil = [ccl.WeakLensingTracer(cosmo, dndz=(z_arr, niz_normalized[zbin_idx, :]), ia_bias=(IAFILE[:, 0], FIAz), use_A_ia=False)
+       for zbin_idx in range(zbins)]
+wig = [ccl.tracers.NumberCountsTracer(cosmo, has_rsd=False, dndz=(z_arr, niz_normalized[zbin_idx, :]), bias=(z_arr, bias_array),
+                                      mag_bias=None) for zbin_idx in range(zbins)]
 
-assert 1 > 2
+
 
 # using Sylvain's z
 # z = np.genfromtxt("C:/Users/dscio/Documents/Lavoro/Programmi/SSC_comparison/input/windows_sylvain/nz_source/z.txt")
@@ -408,49 +412,6 @@ assert 1 > 2
 # TODO add check on i_array, i in niz must be an int, otherwise the function gets interpolated!!
 # TODO re-compute and check n_i(z), maybe compute it with scipy.special.erf
 
-if cfg.use_camb:
-    # ! new code - just a test with CAMB WF
-    ################# CAMB #####################
-    import camb
-    from camb import model, initialpower
-
-    Om_c0 = ISTF.primary['Om_m0'] - ISTF.primary['Om_b0'] - ISTF.neutrino_params['Omega_nu']
-    omch2 = Om_c0 * ISTF.primary['h_0'] ** 2
-
-    # Set up a new set of parameters for CAMB
-    pars = camb.CAMBparams()
-    # This function sets up CosmoMC-like settings, with one massive neutrino and helium set using BBN consistency
-    pars.set_cosmology(H0=H0, ombh2=ISTF.primary['Om_bh2'], omch2=omch2,
-                       mnu=ISTF.extensions['m_nu'], omk=ISTF.extensions['Om_k0'], tau=ISTF.other_cosmo_params['tau'])
-
-    pars.InitPower.set_params(As=ISTF.other_cosmo_params['A_s'], ns=ISTF.primary['n_s'], r=0)
-    pars.set_for_lmax(2500, lens_potential_accuracy=0)
-
-    # start with one bin
-    # wil = camb.sources.SplinedSourceWindow(source_type = 'lensing')
-
-    pars.SourceWindows = [
-        GaussianSourceWindow(redshift=0.001, source_type='counts', bias=b(0), sigma=0.04, dlog10Ndm=-0.2),
-        GaussianSourceWindow(redshift=0.5, source_type='lensing', sigma=0.07)]
-
-    results = camb.get_results(pars)
-    cls = results.get_source_cls_dict()
-
-    # import vincenzo:
-    path_vinc = '/Users/davide/Documents/Lavoro/Programmi/common_data/vincenzo/Cij-NonLin-eNLA_15gen'
-    cl_vinc = np.genfromtxt(f'{path_vinc}/CijLL-LCDM-NonLin-eNLA.dat')
-
-    lmax = 2500
-    ls = np.arange(2, lmax + 1)
-    # for spectrum in ['W1xW1', 'W2xW2', 'W1xW2']:
-    for spectrum in ['W1xW1']:
-        plt.loglog(ls, cls[spectrum][2: lmax + 1] * 2 * np.pi / (ls * (ls + 1)), label=spectrum)
-        plt.plot(cl_vinc[:, 0], cl_vinc[:, 1])
-    plt.xlabel(r'$\ell$')
-    plt.ylabel(r'$\ell(\ell+1)C_\ell/2\pi$')
-    plt.legend()
-
-    # ! end new code - just a test with CAMB WF
 
 # ! COMPUTE KERNELS
 
@@ -467,12 +428,12 @@ Dz_array = np.asarray([D(z) for z in z_array])
 
 # ! load or import b_i(z)
 if cfg.load_external_bias:
-    print('Warning: loading external bias, this import is specific to the flagship1/2 ngbTab files')
-    bias_zbins = np.genfromtxt(f'{cfg.bias_path}/{cfg.bias_filename}')[1, :]
-    bias_zgrid = np.asarray([b_new(z, bias_zbins) for z in z_array])
+    warnings.warn('Loading external b_of_z, this import is specific to the flagship1/2 ngbTab files')
+    bz_values = np.genfromtxt(f'{cfg.bias_path}/{cfg.bias_filename}')[1, :]
 else:
-    bias_zbins = np.asarray([b(zbin_idx) for zbin_idx in range(zbins)])
-    bias_zgrid = np.asarray([b_new(z, bias_zbins) for z in z_array])
+    bz_values = np.asarray([b_of_z(zbin_idx) for zbin_idx in range(zbins)])
+
+bias_zgrid = np.asarray([stepwise_bias(z, bz_values) for z in z_array])
 
 # fill simpson integrand
 start = time.perf_counter()
