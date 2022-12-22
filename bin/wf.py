@@ -28,8 +28,8 @@ import ISTF_fid_params as ISTF
 import mpl_cfg
 
 # config files
-# sys.path.append(f'{project_path}/config')
-from config import config_wlcl as cfg
+sys.path.append(f'{project_path}/config')
+import config_wlcl as cfg
 
 # project modules
 # sys.path.append(f'{project_path}/bin')
@@ -136,10 +136,10 @@ def n(z):
     return result
 
 
-################################## n_i(z) ##############################################
+################################## niz_unnorm_quad(z) ##############################################
 
 
-# ! load or compute n_i(z)
+# ! load or compute niz_unnorm_quad(z)
 if cfg.load_external_niz:
     niz_import = np.genfromtxt(f'{cfg.niz_path}/{cfg.niz_filename}')
     # store and remove the redshift values, ie the 1st column
@@ -151,9 +151,7 @@ if cfg.load_external_niz:
     # normalization array
     n_bar = scipy.integrate.simps(niz_import, z_values_from_nz, axis=0)
     if not np.allclose(n_bar, np.ones(zbins), rtol=0.01, atol=0):
-        print('It looks like the input n_i(z) are not normalized (they differ from 1 by more than 1%)')
-
-
+        print('It looks like the input niz_unnorm_quad(z) are not normalized (they differ from 1 by more than 1%)')
 
 
 def n_i_old(z, i):
@@ -177,34 +175,60 @@ niz = interp2d(i_array, z_values_from_nz, niz_import_cpy, kind="linear")
 def n_i(z, i):
     """with quad"""
     integrand = lambda z_p, z: n(z) * pph(z, z_p)
-    numerator = quad(integrand, z_minus[i], z_plus[i], args=(z))[0]
+    numerator = quad(integrand, z_minus[i], z_plus[i], args=z)[0]
     denominator = dblquad(integrand, z_min, z_max, z_minus[i], z_plus[i])[0]
     return numerator / denominator
 
 
-zp_points = 500
-zp_num_per_bin = int(zp_points / zbins)
-zp_grid = np.empty(0)
-zp_bin_grid = np.zeros((zbins, zp_num_per_bin))
-for i in range(zbins):
-    zp_bin_grid[i, :] = np.linspace(z_edges[i], z_edges[i + 1], zp_num_per_bin)
+def niz_unnormalized_quad(z, zbin_idx, pph=pph):
+    """with quad"""
+    integrand = lambda z_p, z: n(z) * pph(z, z_p)
+    return quad(integrand, z_minus[zbin_idx], z_plus[zbin_idx], args=z)[0]
 
-def niz_unnormalized_simps(z, zbin_idx, pph):
+
+# equal number of points per bin
+zp_points = 500
+zp_points_per_bin = int(zp_points / zbins)
+zp_bin_grid = np.zeros((zbins, zp_points_per_bin))
+for i in range(zbins):
+    zp_bin_grid[i, :] = np.linspace(z_edges[i], z_edges[i + 1], zp_points_per_bin)
+
+# alternative: equispaced grid with z_edges added (does *not* work well, needs a lot of samples!!)
+zp_grid = np.linspace(0, 4, 4000)
+zp_grid = np.concatenate((z_edges, zp_grid))
+zp_grid = np.unique(zp_grid)
+zp_grid = np.sort(zp_grid)
+z_edges_idxs = np.array(
+    [np.where(zp_grid == z_edges[i])[0][0] for i in range(z_edges.shape[0])])  # indices of z_edges in zp_grid
+
+
+def niz_unnormalized_simps(z, zbin_idx, pph=pph):
     """numerator of Eq. (112) of ISTF, with simpson integration"""
     assert type(zbin_idx) == int, 'zbin_idx must be an integer'
-    niz_unnorm_integrand = pph(zp_bin_grid[zbin_idx, :], z)
-    niz_unnorm_integral = simps(y=niz_unnorm_integrand, x=zp_bin_grid[zbin_idx, :])
+    niz_unnorm_integrand = np.array([pph(z, zp_bin_grid[zbin_idx, :]) for z in z_arr])
+    niz_unnorm_integral = simps(y=niz_unnorm_integrand, x=zp_bin_grid[zbin_idx, :], axis=1)
     niz_unnorm_integral *= n(z)
     return niz_unnorm_integral
 
 
-def niz_unnormalized(z, zbin_idx, pph):
+def niz_unnormalized_simps_2(z_arr, zbin_idx, pph=pph):
+    """numerator of Eq. (112) of ISTF, with simpson integration and "global" grid"""
+    warnings.warn('this function does not work well, needs very high number of samples, the zp_bin_grid sampling is better')
+    assert type(zbin_idx) == int, 'zbin_idx must be an integer'
+    z_minus = z_edges_idxs[zbin_idx]
+    z_plus = z_edges_idxs[zbin_idx + 1]
+    niz_unnorm_integrand = np.array([pph(z, zp_grid[z_minus:z_plus]) for z in z_arr])
+    niz_unnorm_integral = simps(y=niz_unnorm_integrand, x=zp_grid[z_minus:z_plus], axis=1)
+    return niz_unnorm_integral * n(z_arr)
+
+
+def niz_unnormalized_quadvec(z, zbin_idx, pph=pph):
     """
     :param z: float, does not accept an array. Same as above, but with quad_vec
     """
     assert type(zbin_idx) == int, 'zbin_idx must be an integer'
-    niz_unnorm = quad_vec(pph, z_edges[zbin_idx], z_edges[zbin_idx + 1], args=(z,))[0]
-    niz_unnorm *= n(z)
+    integrand = lambda z_p, z: n(z) * pph(z, z_p)
+    niz_unnorm = quad_vec(integrand, z_minus[zbin_idx], z_plus[zbin_idx], args=z)[0]
     return niz_unnorm
 
 
@@ -223,45 +247,76 @@ def normalize_niz(niz_unnorm_arr, z_arr):
 def niz_normalized(z, zbin_idx, pph):
     """this is a wrapper function which normalizes the result.
     The if-else is needed not to compute the normalization for each z, but only once for each zbin_idx
-    Note that the niz_unnormalized function is not vectorized in z (its 1st argument)
+    Note that the niz_unnormalized_quadvec function is not vectorized in z (its 1st argument)
     """
 
     if type(z) == float or type(z) == int:
-        return niz_unnormalized(z, zbin_idx, pph) / niz_normalization(zbin_idx, niz_unnormalized, pph)
+        return niz_unnormalized_quadvec(z, zbin_idx, pph) / niz_normalization(zbin_idx, niz_unnormalized_quadvec, pph)
 
     elif type(z) == np.ndarray:
-        niz_unnormalized_arr = np.asarray([niz_unnormalized(z_value, zbin_idx, pph) for z_value in z])
-        return niz_unnormalized_arr / niz_normalization(zbin_idx, niz_unnormalized, pph)
+        niz_unnormalized_arr = np.asarray([niz_unnormalized_quadvec(z_value, zbin_idx, pph) for z_value in z])
+        return niz_unnormalized_arr / niz_normalization(zbin_idx, niz_unnormalized_quadvec, pph)
 
     else:
         raise TypeError('z must be a float, an int or a numpy array')
 
 
-def niz_unnorm_stef(z, i):
+def niz_unnorm_stef(z, zbin_idx):
     """the one used by Stefano in the PyCCL notebook"""
-    addendum_1 = erf((z - z_o - c_o * z_edges[i]) / sqrt2 / (1 + z) / sigma_o)
-    addendum_2 = erf((z - z_o - c_o * z_edges[i + 1]) / sqrt2 / (1 + z) / sigma_o)
-    addendum_3 = erf((z - z_b - c_b * z_edges[i]) / sqrt2 / (1 + z) / sigma_b)
-    addendum_4 = erf((z - z_b - c_b * z_edges[i + 1]) / sqrt2 / (1 + z) / sigma_b)
+    addendum_1 = erf((z - z_o - c_o * z_edges[zbin_idx]) / (sqrt2 * (1 + z) * sigma_o))
+    addendum_2 = erf((z - z_o - c_o * z_edges[zbin_idx + 1]) / (sqrt2 * (1 + z) * sigma_o))
+    addendum_3 = erf((z - z_b - c_b * z_edges[zbin_idx]) / (sqrt2 * (1 + z) * sigma_b))
+    addendum_4 = erf((z - z_b - c_b * z_edges[zbin_idx + 1]) / (sqrt2 * (1 + z) * sigma_b))
 
-    result = n(z) * 1 / 2 / c_o / c_b * \
+    result = n(z) / (2 * c_o * c_b) * \
              (c_b * f_out * (addendum_1 - addendum_2) + c_o * (1 - f_out) * (addendum_3 - addendum_4))
     return result
 
 
-z_arr = np.linspace(0, 4, 300)
-niz_unnormalized_dav = np.asarray([niz_unnormalized(z_arr, zbin_idx, pph) for zbin_idx in range(zbins)])
+z_arr = np.linspace(0, 4, 500)
+
+# niz_unnormalized_quadvec_arr = np.asarray([niz_unnormalized_quadvec(z_arr, zbin_idx) for zbin_idx in range(zbins)])
+niz_unnormalized_simps_2_arr = np.asarray([niz_unnormalized_simps_2(z_arr, zbin_idx) for zbin_idx in range(zbins)])
+niz_unnormalized_simps_arr = np.asarray([niz_unnormalized_simps(z_arr, zbin_idx) for zbin_idx in range(zbins)])
+niz_unnormalized_quad_arr = np.asarray([[niz_unnormalized_quad(z, zbin_idx)
+                                         for z in z_arr]
+                                        for zbin_idx in range(zbins)])
 niz_unnormalized_stef = np.asarray([niz_unnorm_stef(z_arr, zbin_idx) for zbin_idx in range(zbins)])
-niz_unnormalized_dav_2 = niz(np.array(range(10)), z_arr).T
+# niz_unnormalized_dav_2 = niz(np.array(range(10)), z_arr).T
 
 # normalize nz: this should be the denominator of Eq. (112) of IST:f
 norm_factor_stef = simps(niz_unnormalized_stef, z_arr)
 
-niz_normalized_dav = normalize_niz(niz_unnormalized_dav, z_arr)
+# niz_normalized_quadvec_arr = normalize_niz(niz_unnormalized_quadvec_arr, z_arr)
+niz_normalized_quad_arr = normalize_niz(niz_unnormalized_quad_arr, z_arr)
+niz_normalized_simps_arr = normalize_niz(niz_unnormalized_simps_arr, z_arr)
+niz_normalized_simps_2_arr = normalize_niz(niz_unnormalized_simps_2_arr, z_arr)
 niz_normalized_stef = normalize_niz(niz_unnormalized_stef, z_arr)
-niz_normalized_dav_2 = normalize_niz(niz_unnormalized_dav_2, z_arr)
+niz_normalized_cfp = np.load('/Users/davide/Documents/Lavoro/Programmi/cl_v2/input/niz_cosmicfishpie.npy')
 
+# plot them
+fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+# for i in range(zbins):
+i = 8
+# ax.plot(z_arr, niz_normalized_quad_arr[i, :], label='niz_unnormalized_quad_arr, zbin {}'.format(i))
+# ax.plot(z_arr, niz_normalized_dav_2[i, :], label='niz_unnormalized_dav_2, zbin {}'.format(i))
+# ax.plot(z_arr, niz_normalized_simps_2_arr[i, :], label='niz_unnormalized_simps_2_arr, zbin {}'.format(i))
+ax.plot(z_arr, mm.percent_diff(niz_normalized_stef, niz_normalized_simps_2_arr)[i, :],
+        label='stef vs simps, zbin {}'.format(i))
+ax.plot(z_arr, mm.percent_diff(niz_normalized_stef[i, :], niz_normalized_quad_arr[i, :]),
+        label='stef vs quad, zbin {}'.format(i))
+ax.plot(z_arr, mm.percent_diff(niz_normalized_stef[i, :], niz_normalized_simps_arr[i, :]),
+        label='stef vs simps_old, zbin {}'.format(i))
+# ax.plot(z_arr, mm.percent_diff(niz_normalized_stef[i, :], niz_normalized_quad_arr[i, :]),
+#         label='niz_normalized_cfp, zbin {}'.format(i))
+# ax.plot(z_arr, niz_normalized_quad_arr[i, :], label='niz_normalized_quad_arr, zbin {}, 2'.format(i))
+ax.legend()
+ax.set_xlabel('z')
+ax.set_ylabel('n(z)')
+ax.set_title('n(z) normalized')
+plt.show()
 
+assert 1 > 2
 
 
 ################################## end niz ##############################################
@@ -369,15 +424,14 @@ def wig_IST(z_array, i_array, bias_zgrid):
     return result.T
 
 
-z_arr = np.linspace(0, 4, 200)
-
-
 ########################################################################################################################
 ########################################################################################################################
 ########################################################################################################################
 
 ###### WF with PyCCL ######
 
+zpoints = 700
+z_arr = np.linspace(z_min, z_max, zpoints)
 
 Om_c0 = ISTF.primary['Om_m0'] - ISTF.primary['Om_b0']
 cosmo = ccl.Cosmology(Omega_c=Om_c0, Omega_b=ISTF.primary['Om_b0'], w0=ISTF.primary['w_0'],
@@ -397,34 +451,37 @@ bias_array = np.asarray([stepwise_bias(z, bz_values) for z in z_arr])
 niz_unnormalized = np.asarray([niz_unnorm_stef(z_arr, zbin_idx) for zbin_idx in range(zbins)])
 niz_normalized = normalize_niz(niz_unnormalized, z_arr)
 
-
 # compute the kernels
-wil = [ccl.WeakLensingTracer(cosmo, dndz=(z_arr, niz_normalized[zbin_idx, :]), ia_bias=(IAFILE[:, 0], FIAz), use_A_ia=False)
-       for zbin_idx in range(zbins)]
-wig = [ccl.tracers.NumberCountsTracer(cosmo, has_rsd=False, dndz=(z_arr, niz_normalized[zbin_idx, :]), bias=(z_arr, bias_array),
+wil = [ccl.tracers.WeakLensingTracer(cosmo, dndz=(z_arr, niz_normalized[zbin_idx, :]), ia_bias=(IAFILE[:, 0], FIAz),
+                                     use_A_ia=False) for zbin_idx in range(zbins)]
+wig = [ccl.tracers.NumberCountsTracer(cosmo, has_rsd=False, dndz=(z_arr, niz_normalized[zbin_idx, :]),
+                                      bias=(z_arr, bias_array),
                                       mag_bias=None) for zbin_idx in range(zbins)]
 
+# comoving distance of z
+a_arr = 1 / (1 + z_arr)
+chi = ccl.comoving_radial_distance(cosmo, a_arr)
 
+wil_PyCCL_arr = np.asarray([wil[zbin_idx].get_kernel(chi) for zbin_idx in range(zbins)])
+wig_PyCCL_arr = np.asarray([wig[zbin_idx].get_kernel(chi) for zbin_idx in range(zbins)])
 
 # using Sylvain's z
 # z = np.genfromtxt("C:/Users/dscio/Documents/Lavoro/Programmi/SSC_comparison/input/windows_sylvain/nz_source/z.txt")
 
 # TODO add check on i_array, i in niz must be an int, otherwise the function gets interpolated!!
-# TODO re-compute and check n_i(z), maybe compute it with scipy.special.erf
+# TODO re-compute and check niz_unnorm_quad(z), maybe compute it with scipy.special.erf
 
 
 # ! COMPUTE KERNELS
 
 # this is the final grid on which the wf are computed
-zpoints = 700
-z_array = np.linspace(z_min, z_max, zpoints)
 
 # this is the z grid used for all the other computations (i.e., integration)
 zpoints_simps = 700
 z_prime_array = np.linspace(z_min, z_max, zpoints_simps)
 
 print('precomputing arrays')
-Dz_array = np.asarray([D(z) for z in z_array])
+Dz_array = np.asarray([D(z) for z in z_arr])
 
 # ! load or import b_i(z)
 if cfg.load_external_bias:
@@ -433,44 +490,46 @@ if cfg.load_external_bias:
 else:
     bz_values = np.asarray([b_of_z(zbin_idx) for zbin_idx in range(zbins)])
 
-bias_zgrid = np.asarray([stepwise_bias(z, bz_values) for z in z_array])
+bias_zgrid = np.asarray([stepwise_bias(z, bz_values) for z in z_arr])
 
 # fill simpson integrand
 start = time.perf_counter()
-integrand = np.zeros((z_prime_array.size, z_array.size, zbins))
-for z_idx, z_val in enumerate(z_array):
+integrand = np.zeros((z_prime_array.size, z_arr.size, zbins))
+for z_idx, z_val in enumerate(z_arr):
     # output order of wil_tilde_integrand_vec is: z_prime, i
     integrand[:, z_idx, :] = wil_tilde_integrand_vec(z_prime_array, z_val, i_array).T
 print(f'integrand wil_tilde_integrand with for loop filled in: {(time.perf_counter() - start):.2} s')
 
 start = time.perf_counter()
-wil_tilde_array = np.zeros((z_array.size, zbins))
-for z_idx, z_val in enumerate(z_array):
+wil_tilde_array = np.zeros((z_arr.size, zbins))
+for z_idx, z_val in enumerate(z_arr):
     # take the closest value to the desired z - less than 0.1% difference with the desired z
     z_prime_idx = np.argmin(np.abs(z_prime_array - z_val))
     wil_tilde_array[z_idx, :] = simpson(integrand[z_prime_idx:, z_idx, :], z_prime_array[z_prime_idx:], axis=0)
 print(f'simpson integral done in: {(time.perf_counter() - start):.2} s')
 
-wig_IST_arr = wig_IST(z_array, i_array, bias_zgrid=bias_zgrid, include_bias=cfg.include_bias)
-wil_IA_IST_arr = wil_IA_IST(z_array, i_array, wil_tilde_array, Dz_array)
+wig_IST_arr = wig_IST(z_arr, i_array, bias_zgrid=bias_zgrid)
+wil_IA_IST_arr = wil_IA_IST(z_arr, i_array, wil_tilde_array, Dz_array)
 
 plt.figure()
 for i in range(zbins):
-    plt.plot(z_array, wil_IA_IST_arr[:, i], label=f"wil i={i}")
+    plt.plot(z_arr, wil_IA_IST_arr[:, i], label=f"wil i={i}")
+    plt.plot(z_arr, wil_PyCCL_arr[i, 0, :], label=f"wil PyCCL i={i}")
 plt.legend()
 plt.grid()
 plt.show()
 
 plt.figure()
 for i in range(zbins):
-    plt.plot(z_array, wig_IST_arr[:, i], label=f"wig i={i}")
+    plt.plot(z_arr, wig_IST_arr[:, i], label=f"wig i={i}")
+    plt.plot(z_arr, wig_PyCCL_arr[i, 0, :], label=f"wig PyCCL i={i}")
 plt.legend()
 plt.grid()
 plt.show()
 
 # insert z array values in the 0-th column
-wil_IA_IST_arr = np.insert(wil_IA_IST_arr, 0, z_array, axis=1)
-wig_IST_arr = np.insert(wig_IST_arr, 0, z_array, axis=1)
+wil_IA_IST_arr = np.insert(wil_IA_IST_arr, 0, z_arr, axis=1)
+wig_IST_arr = np.insert(wig_IST_arr, 0, z_arr, axis=1)
 
 np.save(f'{project_path}/output/WF/{WFs_output_folder}/wil_IA_IST_nz{zpoints}.npy', wil_IA_IST_arr)
 np.save(f'{project_path}/output/WF/{WFs_output_folder}/wig_IST_nz{zpoints}.npy', wig_IST_arr)
@@ -492,18 +551,18 @@ zvalues_fs1 = wig_fs1[:, 0]
 # plt.legend()
 # plt.grid()
 
-plt.figure()
-for zbin_idx in range(zbins):
-    plt.plot(zvalues_fs1, wig_fs1[:, zbin_idx + 1], label='wig fs1')
-    plt.plot(z_array, wig_IST_arr[:, zbin_idx + 1], label='wig davide', ls='--')
-plt.legend()
-plt.grid()
-
-plt.figure()
-for zbin_idx in range(zbins):
-    plt.plot(zvalues_fs1, wil_fs1[:, zbin_idx + 1], label='wil fs1')
-    plt.plot(z_array, wil_IA_IST_arr[:, zbin_idx + 1], label='wil davide', ls='--')
-plt.legend()
-plt.grid()
+# plt.figure()
+# for zbin_idx in range(zbins):
+#     plt.plot(zvalues_fs1, wig_fs1[:, zbin_idx + 1], label='wig fs1')
+#     plt.plot(z_arr, wig_IST_arr[:, zbin_idx + 1], label='wig davide', ls='--')
+# plt.legend()
+# plt.grid()
+#
+# plt.figure()
+# for zbin_idx in range(zbins):
+#     plt.plot(zvalues_fs1, wil_fs1[:, zbin_idx + 1], label='wil fs1')
+#     plt.plot(z_arr, wil_IA_IST_arr[:, zbin_idx + 1], label='wil davide', ls='--')
+# plt.legend()
+# plt.grid()
 
 print("the script took %.2f seconds to run" % (time.perf_counter() - script_start))
