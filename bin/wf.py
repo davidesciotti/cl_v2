@@ -162,6 +162,7 @@ def n_i_old(z, i):
 
 
 zbin_idx_array = np.asarray(range(zbins))
+assert zbin_idx_array.dtype == 'int64', "zbin_idx_array.dtype should be 'int64'"
 niz_import_cpy = niz_import.copy()  # remove redshift column
 
 # note: this is NOT an interpolation in i, which are just the bin indices and will NOT differ from the values 0, 1, 2
@@ -247,7 +248,6 @@ def normalize_niz(niz_unnorm_arr, z_arr):
 
 
 def niz_normalized(z, zbin_idx, pph):
-
     """this is a wrapper function which normalizes the result.
     The if-else is needed not to compute the normalization for each z, but only once for each zbin_idx
     Note that the niz_unnormalized_quadvec function is not vectorized in z (its 1st argument)
@@ -309,9 +309,6 @@ ax.set_xlabel('z')
 ax.set_ylabel('n_i(z)')
 ax.legend()
 plt.show()
-
-
-
 
 
 ################################## end niz ##############################################
@@ -427,61 +424,8 @@ def wig_IST(z_array, zbin_idx_array, bias_zgrid):
 ########################################################################################################################
 ########################################################################################################################
 
-###### WF with PyCCL ######
 zpoints = 1000
 z_arr = np.linspace(z_min, z_max, zpoints)
-
-
-Om_c0 = ISTF.primary['Om_m0'] - ISTF.primary['Om_b0']
-cosmo = ccl.Cosmology(Omega_c=Om_c0, Omega_b=ISTF.primary['Om_b0'], w0=ISTF.primary['w_0'],
-                      wa=ISTF.primary['w_a'], h=ISTF.primary['h_0'], sigma8=ISTF.primary['sigma_8'],
-                      n_s=ISTF.primary['n_s'], m_nu=ISTF.extensions['m_nu'],
-                      Omega_k=1 - (Om_c0 + ISTF.primary['Om_b0']) - ISTF.extensions['Om_Lambda0'])
-
-IAFILE = np.genfromtxt(project_path / 'input/scaledmeanlum-E2Sa.dat')
-warnings.warn('could this cause some difference?')
-IAFILE = lumin_ratio
-FIAzNoCosmoNoGrowth = -1 * 1.72 * 0.0134 * (1 + IAFILE[:, 0]) ** (-0.41) * IAFILE[:, 1] ** 2.17
-FIAz = FIAzNoCosmoNoGrowth * (cosmo.cosmo.params.Omega_c + cosmo.cosmo.params.Omega_b) / ccl.growth_factor(cosmo, 1 / (
-        1 + IAFILE[:, 0]))
-
-bz_values = np.asarray([b_of_z(zbin_idx) for zbin_idx in range(zbins)])
-bias_array = np.asarray([stepwise_bias(z, bz_values) for z in z_arr])
-niz_unnormalized = np.asarray([niz_unnorm_analytical(z_arr, zbin_idx) for zbin_idx in range(zbins)])
-niz_normalized_arr = normalize_niz(niz_unnormalized, z_arr)
-
-# compute the tracer objects
-wil = [ccl.tracers.WeakLensingTracer(cosmo, dndz=(z_arr, niz_normalized_arr[zbin_idx, :]), ia_bias=(IAFILE[:, 0], FIAz),
-                                     use_A_ia=False) for zbin_idx in range(zbins)]
-wig = [ccl.tracers.NumberCountsTracer(cosmo, has_rsd=False, dndz=(z_arr, niz_normalized_arr[zbin_idx, :]),
-                                      bias=(z_arr, bias_array),
-                                      mag_bias=None) for zbin_idx in range(zbins)]
-
-# get the radial kernels
-# comoving distance of z
-a_arr = 1 / (1 + z_arr)
-chi = ccl.comoving_radial_distance(cosmo, a_arr)
-# get kernel
-wil_PyCCL_arr = np.asarray([wil[zbin_idx].get_kernel(chi) for zbin_idx in range(zbins)])
-wig_PyCCL_arr = np.asarray([wig[zbin_idx].get_kernel(chi) for zbin_idx in range(zbins)])  # ! * bias_array if you want to include bias
-
-# using Sylvain's z
-# z = np.genfromtxt("C:/Users/dscio/Documents/Lavoro/Programmi/SSC_comparison/input/windows_sylvain/nz_source/z.txt")
-
-# TODO add check on zbin_idx_array, i in niz must be an int, otherwise the function gets interpolated!!
-# TODO re-compute and check niz_unnorm_quad(z), maybe compute it with scipy.special.erf
-
-
-# ! COMPUTE KERNELS
-
-# this is the final grid on which the wf are computed
-
-# this is the z grid used for all the other computations (i.e., integration)
-zpoints_simps = 700
-z_prime_array = np.linspace(z_min, z_max, zpoints_simps)
-
-print('precomputing arrays')
-Dz_array = np.asarray([D(z) for z in z_arr])
 
 # ! load or import b_i(z)
 if cfg.load_external_bias:
@@ -491,6 +435,24 @@ else:
     bz_values = np.asarray([b_of_z(zbin_idx) for zbin_idx in range(zbins)])
 
 bias_zgrid = np.array([stepwise_bias(z, bz_values) for z in z_arr])
+
+
+# using Sylvain's z
+# z = np.genfromtxt("C:/Users/dscio/Documents/Lavoro/Programmi/SSC_comparison/input/windows_sylvain/nz_source/z.txt")
+
+# TODO re-compute and check niz_unnorm_quad(z), maybe compute it with scipy.special.erf
+
+
+# ! compute wf
+
+# this is the final grid on which the wf are computed
+
+# this is the z grid used for all the other computations (i.e., integration)
+zpoints_simps = 700
+z_prime_array = np.linspace(z_min, z_max, zpoints_simps)
+
+# precompute growth factor
+Dz_array = np.asarray([D(z) for z in z_arr])
 
 # fill simpson integrand
 start = time.perf_counter()
@@ -508,18 +470,78 @@ for z_idx, z_val in enumerate(z_arr):
     wil_tilde_array[z_idx, :] = simpson(integrand[z_prime_idx:, z_idx, :], z_prime_array[z_prime_idx:], axis=0)
 print(f'simpson integral done in: {(time.perf_counter() - start):.2} s')
 
+# finally, compute wf
 wig_IST_arr = wig_IST(z_arr, zbin_idx_array, bias_zgrid=bias_zgrid)
 wil_IA_IST_arr = wil_IA_IST(z_arr, zbin_idx_array, wil_tilde_array, Dz_array)
+
+
+# ! compute wf with PyCCL
+# instantiate cosmology
+Om_c0 = ISTF.primary['Om_m0'] - ISTF.primary['Om_b0']
+cosmo = ccl.Cosmology(Omega_c=Om_c0, Omega_b=ISTF.primary['Om_b0'], w0=ISTF.primary['w_0'],
+                      wa=ISTF.primary['w_a'], h=ISTF.primary['h_0'], sigma8=ISTF.primary['sigma_8'],
+                      n_s=ISTF.primary['n_s'], m_nu=ISTF.extensions['m_nu'],
+                      Omega_k=1 - (Om_c0 + ISTF.primary['Om_b0']) - ISTF.extensions['Om_Lambda0'])
+
+
+# Intrinsic alignment
+# IAFILE = np.genfromtxt(project_path / 'input/scaledmeanlum-E2Sa.dat')
+# warnings.warn('could this cause some difference?')
+IAFILE = lumin_ratio
+z_arr_IA = IAFILE[:, 0]
+FIAzNoCosmoNoGrowth = -1 * 1.72 * C_IA * (1 + IAFILE[:, 0]) ** eta_IA * IAFILE[:, 1] ** beta_IA
+FIAz = FIAzNoCosmoNoGrowth * (cosmo.cosmo.params.Omega_c + cosmo.cosmo.params.Omega_b) / ccl.growth_factor(cosmo, 1 / (
+        1 + IAFILE[:, 0]))
+
+# redshift distribution
+niz_unnormalized = np.asarray([niz_unnorm_analytical(z_arr, zbin_idx) for zbin_idx in range(zbins)])
+niz_normalized_arr = normalize_niz(niz_unnormalized, z_arr)
+
+# compute the tracer objects
+wil = [ccl.tracers.WeakLensingTracer(cosmo, dndz=(z_arr, niz_normalized_arr[zbin_idx, :]), ia_bias=(z_arr_IA, FIAz),
+                                     use_A_ia=False) for zbin_idx in range(zbins)]
+wig = [ccl.tracers.NumberCountsTracer(cosmo, has_rsd=False, dndz=(z_arr, niz_normalized_arr[zbin_idx, :]),
+                                      bias=(z_arr, bias_zgrid),
+                                      mag_bias=None) for zbin_idx in range(zbins)]
+
+# get the radial kernels
+# comoving distance of z
+a_arr = 1 / (1 + z_arr)
+chi = ccl.comoving_radial_distance(cosmo, a_arr)
+# get kernel
+wil_PyCCL_arr = np.asarray([wil[zbin_idx].get_kernel(chi) for zbin_idx in range(zbins)])
+wig_PyCCL_arr = np.asarray([wig[zbin_idx].get_kernel(chi) for zbin_idx in range(zbins)])  # ! * bias_zgrid if you want to include bias
+
+wil_noIA_PyCCL_arr = wil_PyCCL_arr[:, 0, :]
+wil_IAonly_PyCCL_arr = wil_PyCCL_arr[:, 1, :]
+wil_IA_PyCCL_arr = wil_noIA_PyCCL_arr - (A_IA * C_IA * Om0 * F_IA(z_arr)) / Dz_array * wil_IAonly_PyCCL_arr
+
+wil_noIA_IST_arr = wil_noIA_IST(z_arr, wil_tilde_array)
+wil_IAonly_IST_arr = W_IA(z_arr, zbin_idx_array).T
+
+# set rainbow colormap over 10 values
+cmap = plt.get_cmap('rainbow')
+colors = [cmap(i) for i in np.linspace(0, 1, zbins)]
+
+
+
+for zbin_idx in range(zbins):
+    plt.plot(z_arr, wil_IA_IST_arr[:, zbin_idx], label='IST', c=colors[zbin_idx], ls='-')
+    plt.plot(z_arr, wil_IA_PyCCL_arr[zbin_idx, :], label='PyCCL', c=colors[zbin_idx], ls=':')
+plt.legend()
+plt.show()
+
+
+
 
 # ✅ niz has good agreement with niz_normalized_arr
 # ✅ wig_CLOE has good agreement wig, but has no bias - which was kinda the whole point of making the comparison...
 
 
-
-# ! VALIDATION against CLOE
+# ! load against CLOE's wf
 wig_CLOE = np.load('/Users/davide/Desktop/CLOE_outputs_niz_wf_validation/wig.npy').T  #
-wil_noia_CLOE = np.load('/Users/davide/Desktop/CLOE_outputs_niz_wf_validation/wil_noia.npy').T
-wil_ia_CLOE = np.load('/Users/davide/Desktop/CLOE_outputs_niz_wf_validation/wil_ia.npy').T
+wil_noIA_CLOE = np.load('/Users/davide/Desktop/CLOE_outputs_niz_wf_validation/wil_noia.npy').T
+wil_IAonly_CLOE = np.load('/Users/davide/Desktop/CLOE_outputs_niz_wf_validation/wil_ia.npy').T
 niz_CLOE = np.load('/Users/davide/Desktop/CLOE_outputs_niz_wf_validation/niz.npy').T
 z_values_CLOE = np.load('/Users/davide/Desktop/CLOE_outputs_niz_wf_validation/zs.npy')
 
@@ -528,16 +550,19 @@ z_values_CLOE = np.load('/Users/davide/Desktop/CLOE_outputs_niz_wf_validation/zs
 # z_arr = z_values_CLOE
 # assert np.array_equal(z_arr, z_values_CLOE), 'mine and CLOEs z values are not the same'
 
-# set rainbow colormap over 10 values
-cmap = plt.get_cmap('rainbow')
-colors = [cmap(i) for i in np.linspace(0, 1, zbins)]
-
 # check wil
 plt.figure()
 for i in range(zbins):
-    # plt.plot(z_arr, wil_IA_IST_arr[:, i], label=f"wil i={i}")
-    plt.plot(z_values_CLOE, wil_noia_CLOE[:, i] + wil_ia_CLOE[:, i], label=f"wil i={i}")
-    # plt.plot(z_arr, wil_PyCCL_arr[i, 0, :], label=f"wil PyCCL i={i}")
+    # plt.plot(z_arr, wil_IA_IST_arr[:, i], label=f"wil i={i}", c=colors[i], ls='-')
+    plt.plot(z_values_CLOE, wil_noIA_CLOE[:, i], label=f"wil i={i}", c=colors[i], ls='-')
+    # plt.plot(z_values_CLOE, wil_IAonly_CLOE[:, i], label=f"wil i={i}", c=colors[i], ls='-')
+    plt.plot(z_arr, wil_noIA_PyCCL_arr, label=f"wil PyCCL i={i}", c=colors[i], ls='--')
+    #
+    # plt.plot(z_values_CLOE, wil_ia_CLOE[:, i], label=f"wil i={i}", c=colors[i], ls='-')
+    # plt.plot(z_arr, wil_PyCCL_arr[i, 1, :], label=f"wil PyCCL i={i}", c=colors[i], ls='--')
+    #
+    # plt.plot(z_values_CLOE, wil_noia_CLOE[:, i] + wil_ia_CLOE[:, i], label=f"wil i={i}", c=colors[i], ls='-')
+    # plt.plot(z_arr, wil_PyCCL_arr[i, 0, :] - wil_PyCCL_arr[i, 1, :], label=f"wil PyCCL i={i}", c=colors[i], ls='--')
 plt.legend()
 plt.grid()
 plt.show()
@@ -559,17 +584,12 @@ wig_IST_arr = np.insert(wig_IST_arr, 0, z_arr, axis=1)
 np.save(f'{project_path}/output/WF/{WFs_output_folder}/wil_IA_IST_nz{zpoints}.npy', wil_IA_IST_arr)
 np.save(f'{project_path}/output/WF/{WFs_output_folder}/wig_IST_nz{zpoints}.npy', wig_IST_arr)
 
-# ! validation
+# ! validation against PyCCL old files
 wig_pyccl = np.load('/Users/davide/Documents/Lavoro/Programmi/PyCCL_SSC/output/wf_and_cl_validation/wig_array.npy').T
 wil_pyccl = np.load('/Users/davide/Documents/Lavoro/Programmi/PyCCL_SSC/output/wf_and_cl_validation/wil_array.npy').T
 zvalues_pyccl = np.load('/Users/davide/Documents/Lavoro/Programmi/PyCCL_SSC/output/wf_and_cl_validation/ztab.npy').T
 
-
-
-
-
 # ! VALIDATION against FS1
-
 wig_fs1 = np.genfromtxt(
     '/Users/davide/Documents/Lavoro/Programmi/common_data/vincenzo/SPV3_07_2022/Flagship_1/KernelFun/WiGC-EP10.dat')
 wil_fs1 = np.genfromtxt(
