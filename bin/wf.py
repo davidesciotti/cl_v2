@@ -161,12 +161,12 @@ def n_i_old(z, i):
     return result
 
 
-i_array = np.asarray(range(zbins))
+zbin_idx_array = np.asarray(range(zbins))
 niz_import_cpy = niz_import.copy()  # remove redshift column
 
 # note: this is NOT an interpolation in i, which are just the bin indices and will NOT differ from the values 0, 1, 2
 # ... 9. The purpose is just to have a 2D vectorized callable.
-niz = interp2d(i_array, z_values_from_nz, niz_import_cpy, kind="linear")
+niz = interp2d(zbin_idx_array, z_values_from_nz, niz_import_cpy, kind="linear")
 
 
 # note: the normalization of n(z) should be unimportant, here I compute a ratio
@@ -207,13 +207,14 @@ def niz_unnormalized_simps(z, zbin_idx, pph=pph):
     assert type(zbin_idx) == int, 'zbin_idx must be an integer'
     niz_unnorm_integrand = np.array([pph(z, zp_bin_grid[zbin_idx, :]) for z in z_arr])
     niz_unnorm_integral = simps(y=niz_unnorm_integrand, x=zp_bin_grid[zbin_idx, :], axis=1)
-    niz_unnorm_integral *= n(z)
+    niz_unnorm_integral *= n(z)  # ! z_arr?
     return niz_unnorm_integral
 
 
 def niz_unnormalized_simps_2(z_arr, zbin_idx, pph=pph):
     """numerator of Eq. (112) of ISTF, with simpson integration and "global" grid"""
-    warnings.warn('this function does not work well, needs very high number of samples, the zp_bin_grid sampling is better')
+    warnings.warn('this function does not work well, needs very high number of samples;'
+                  ' the zp_bin_grid sampling is better')
     assert type(zbin_idx) == int, 'zbin_idx must be an integer'
     z_minus = z_edges_idxs[zbin_idx]
     z_plus = z_edges_idxs[zbin_idx + 1]
@@ -226,6 +227,7 @@ def niz_unnormalized_quadvec(z, zbin_idx, pph=pph):
     """
     :param z: float, does not accept an array. Same as above, but with quad_vec
     """
+    warnings.warn("niz_unnormalized_quadvec does not seem to work... check and time against simpson")
     assert type(zbin_idx) == int, 'zbin_idx must be an integer'
     integrand = lambda z_p, z: n(z) * pph(z, z_p)
     niz_unnorm = quad_vec(integrand, z_minus[zbin_idx], z_plus[zbin_idx], args=z)[0]
@@ -245,11 +247,12 @@ def normalize_niz(niz_unnorm_arr, z_arr):
 
 
 def niz_normalized(z, zbin_idx, pph):
+
     """this is a wrapper function which normalizes the result.
     The if-else is needed not to compute the normalization for each z, but only once for each zbin_idx
     Note that the niz_unnormalized_quadvec function is not vectorized in z (its 1st argument)
     """
-
+    warnings.warn("this function should be deprecated")
     if type(z) == float or type(z) == int:
         return niz_unnormalized_quadvec(z, zbin_idx, pph) / niz_normalization(zbin_idx, niz_unnormalized_quadvec, pph)
 
@@ -261,7 +264,7 @@ def niz_normalized(z, zbin_idx, pph):
         raise TypeError('z must be a float, an int or a numpy array')
 
 
-def niz_unnorm_stef(z, zbin_idx):
+def niz_unnorm_analytical(z, zbin_idx):
     """the one used by Stefano in the PyCCL notebook"""
     addendum_1 = erf((z - z_o - c_o * z_edges[zbin_idx]) / (sqrt2 * (1 + z) * sigma_o))
     addendum_2 = erf((z - z_o - c_o * z_edges[zbin_idx + 1]) / (sqrt2 * (1 + z) * sigma_o))
@@ -273,7 +276,7 @@ def niz_unnorm_stef(z, zbin_idx):
     return result
 
 
-z_arr = np.linspace(0, 4, 500)
+z_arr = np.linspace(0, 4, 1000)
 
 # niz_unnormalized_quadvec_arr = np.asarray([niz_unnormalized_quadvec(z_arr, zbin_idx) for zbin_idx in range(zbins)])
 niz_unnormalized_simps_2_arr = np.asarray([niz_unnormalized_simps_2(z_arr, zbin_idx) for zbin_idx in range(zbins)])
@@ -281,42 +284,34 @@ niz_unnormalized_simps_arr = np.asarray([niz_unnormalized_simps(z_arr, zbin_idx)
 niz_unnormalized_quad_arr = np.asarray([[niz_unnormalized_quad(z, zbin_idx)
                                          for z in z_arr]
                                         for zbin_idx in range(zbins)])
-niz_unnormalized_stef = np.asarray([niz_unnorm_stef(z_arr, zbin_idx) for zbin_idx in range(zbins)])
+niz_unnormalized_analytical = np.asarray([niz_unnorm_analytical(z_arr, zbin_idx) for zbin_idx in range(zbins)])
 # niz_unnormalized_dav_2 = niz(np.array(range(10)), z_arr).T
 
 # normalize nz: this should be the denominator of Eq. (112) of IST:f
-norm_factor_stef = simps(niz_unnormalized_stef, z_arr)
+norm_factor_stef = simps(niz_unnormalized_analytical, z_arr)
 
 # niz_normalized_quadvec_arr = normalize_niz(niz_unnormalized_quadvec_arr, z_arr)
 niz_normalized_quad_arr = normalize_niz(niz_unnormalized_quad_arr, z_arr)
 niz_normalized_simps_arr = normalize_niz(niz_unnormalized_simps_arr, z_arr)
 niz_normalized_simps_2_arr = normalize_niz(niz_unnormalized_simps_2_arr, z_arr)
-niz_normalized_stef = normalize_niz(niz_unnormalized_stef, z_arr)
+niz_normalized_analytical = normalize_niz(niz_unnormalized_analytical, z_arr)
 niz_normalized_cfp = np.load('/Users/davide/Documents/Lavoro/Programmi/cl_v2/input/niz_cosmicfishpie.npy')
 
 # plot them
 fig, ax = plt.subplots(1, 1, figsize=(10, 6))
-# for i in range(zbins):
-i = 8
-# ax.plot(z_arr, niz_normalized_quad_arr[i, :], label='niz_unnormalized_quad_arr, zbin {}'.format(i))
-# ax.plot(z_arr, niz_normalized_dav_2[i, :], label='niz_unnormalized_dav_2, zbin {}'.format(i))
-# ax.plot(z_arr, niz_normalized_simps_2_arr[i, :], label='niz_unnormalized_simps_2_arr, zbin {}'.format(i))
-ax.plot(z_arr, mm.percent_diff(niz_normalized_stef, niz_normalized_simps_2_arr)[i, :],
-        label='stef vs simps, zbin {}'.format(i))
-ax.plot(z_arr, mm.percent_diff(niz_normalized_stef[i, :], niz_normalized_quad_arr[i, :]),
-        label='stef vs quad, zbin {}'.format(i))
-ax.plot(z_arr, mm.percent_diff(niz_normalized_stef[i, :], niz_normalized_simps_arr[i, :]),
-        label='stef vs simps_old, zbin {}'.format(i))
-# ax.plot(z_arr, mm.percent_diff(niz_normalized_stef[i, :], niz_normalized_quad_arr[i, :]),
-#         label='niz_normalized_cfp, zbin {}'.format(i))
-# ax.plot(z_arr, niz_normalized_quad_arr[i, :], label='niz_normalized_quad_arr, zbin {}, 2'.format(i))
-ax.legend()
+zbin_idx = 5
+ax.plot(z_arr, niz_normalized_analytical[zbin_idx], label='analytical', lw=1.3)
+ax.plot(z_arr, niz_normalized_quad_arr[zbin_idx], label='quad', lw=1.3)
+ax.plot(z_arr, niz_normalized_simps_arr[zbin_idx], label='simps', lw=1.3)
+ax.plot(z_arr, niz_normalized_simps_2_arr[zbin_idx], label='simps_2', lw=1.3)
+# ax.plot(z_arr, niz_normalized_cfp[zbin_idx], label='cfp', lw=1.3)
 ax.set_xlabel('z')
-ax.set_ylabel('n(z)')
-ax.set_title('n(z) normalized')
+ax.set_ylabel('n_i(z)')
+ax.legend()
 plt.show()
 
-assert 1 > 2
+
+
 
 
 ################################## end niz ##############################################
@@ -333,27 +328,27 @@ def wil_tilde_old(z, i):
     return result[0]
 
 
-def wil_tilde_integrand_vec(z_prime, z, i_array):
+def wil_tilde_integrand_vec(z_prime, z, zbin_idx_array):
     """
     vectorized version of wil_tilde_integrand, useful to fill up the computation of the integrand array for the simpson
     integration
     """
-    return niz(i_array, z_prime).T * (1 - csmlib.r_tilde(z) / csmlib.r_tilde(z_prime))
+    return niz(zbin_idx_array, z_prime).T * (1 - csmlib.r_tilde(z) / csmlib.r_tilde(z_prime))
 
 
-# def wil_tilde_new(z, i_array):
-#     # version with quad vec, very slow, I don't know why. It is the i_array that is vectorized, because z_prime is integrated over
-#     return quad_vec(wil_tilde_integrand_vec, z, z_max, args=(z, i_array))[0]
+# def wil_tilde_new(z, zbin_idx_array):
+#     # version with quad vec, very slow, I don't know why. It is the zbin_idx_array that is vectorized, because z_prime is integrated over
+#     return quad_vec(wil_tilde_integrand_vec, z, z_max, args=(z, zbin_idx_array))[0]
 
 
-def wil_noIA_IST(z, i, wil_tilde_array):
+def wil_noIA_IST(z, wil_tilde_array):
     return ((3 / 2) * (H0 / c) * Om0 * (1 + z) * csmlib.r_tilde(z) * wil_tilde_array.T).T
 
 
 ########################################################### IA
 # @njit
-def W_IA(z_array, i_array):
-    result = (H0 / c) * niz(i_array, z_array).T * csmlib.E(z_array)
+def W_IA(z_array, zbin_idx_array):
+    result = (H0 / c) * niz(zbin_idx_array, z_array).T * csmlib.E(z_array)
     return result
 
 
@@ -364,6 +359,7 @@ def W_IA(z_array, i_array):
 #     return result
 
 # test this
+# note: does not accept z = 0 as first value!
 L_ratio = interp1d(lumin_ratio[:, 0], lumin_ratio[:, 1], kind='linear')
 
 
@@ -373,7 +369,7 @@ def F_IA(z):
     return result
 
 
-# use formula 23 for Om(z)
+# use formula 23 of ISTF paper for Om(z)
 # @njit
 def Om(z):
     return Om0 * (1 + z) ** 3 / csmlib.E(z) ** 2
@@ -394,13 +390,13 @@ def D(z):
 #     return (A_IA * C_IA * Om0 * F_IA(z)) / D(z) * W_IA(z, i)
 
 # @njit
-def IA_term(z_array, i_array, Dz_array):
-    return ((A_IA * C_IA * Om0 * F_IA(z_array)) / Dz_array * W_IA(z_array, i_array)).T
+def IA_term(z_array, zbin_idx_array, Dz_array):
+    return ((A_IA * C_IA * Om0 * F_IA(z_array)) / Dz_array * W_IA(z_array, zbin_idx_array)).T
 
 
 # @njit
-def wil_IA_IST(z_array, i_array, wil_tilde_array, Dz_array):
-    return wil_noIA_IST(z_array, i_array, wil_tilde_array) - IA_term(z_array, i_array, Dz_array)
+def wil_IA_IST(z_array, zbin_idx_array, wil_tilde_array, Dz_array):
+    return wil_noIA_IST(z_array, wil_tilde_array) - IA_term(z_array, zbin_idx_array, Dz_array)
 
 
 ###################### wig ###########################
@@ -412,15 +408,18 @@ def stepwise_bias(z, bz_values):
     """bz_values is the array containing one bz value per redshift bin; this function copies this value for each z
     in the bin range"""
     for zbin_idx in range(zbins):
+
+        if z < z_minus[zbin_idx]:  # e.g. z = 0 and z_minus[0] = 0.001; in this case, return bias of the first bin
+            return bz_values[0]
         if z_minus[zbin_idx] <= z < z_plus[zbin_idx]:
             return bz_values[zbin_idx]
         if z >= z_plus[-1]:  # max redshift bin
-            return bz_values[zbins - 1]
+            return bz_values[zbins - 1]  # last value
 
 
-def wig_IST(z_array, i_array, bias_zgrid):
-    # assert bias_zgrid.shape == (z_array.shape[0],)
-    result = (niz(i_array, z_array) / n_bar[i_array]).T * H0 * csmlib.E(z_array) / c * bias_zgrid
+def wig_IST(z_array, zbin_idx_array, bias_zgrid):
+    # assert bias_zgrid.shape == (z_array.shape[0], )
+    result = (niz(zbin_idx_array, z_array) / n_bar[zbin_idx_array]).T * H0 * csmlib.E(z_array) / c * bias_zgrid
     return result.T
 
 
@@ -429,9 +428,9 @@ def wig_IST(z_array, i_array, bias_zgrid):
 ########################################################################################################################
 
 ###### WF with PyCCL ######
-
-zpoints = 700
+zpoints = 1000
 z_arr = np.linspace(z_min, z_max, zpoints)
+
 
 Om_c0 = ISTF.primary['Om_m0'] - ISTF.primary['Om_b0']
 cosmo = ccl.Cosmology(Omega_c=Om_c0, Omega_b=ISTF.primary['Om_b0'], w0=ISTF.primary['w_0'],
@@ -448,27 +447,28 @@ FIAz = FIAzNoCosmoNoGrowth * (cosmo.cosmo.params.Omega_c + cosmo.cosmo.params.Om
 
 bz_values = np.asarray([b_of_z(zbin_idx) for zbin_idx in range(zbins)])
 bias_array = np.asarray([stepwise_bias(z, bz_values) for z in z_arr])
-niz_unnormalized = np.asarray([niz_unnorm_stef(z_arr, zbin_idx) for zbin_idx in range(zbins)])
-niz_normalized = normalize_niz(niz_unnormalized, z_arr)
+niz_unnormalized = np.asarray([niz_unnorm_analytical(z_arr, zbin_idx) for zbin_idx in range(zbins)])
+niz_normalized_arr = normalize_niz(niz_unnormalized, z_arr)
 
-# compute the kernels
-wil = [ccl.tracers.WeakLensingTracer(cosmo, dndz=(z_arr, niz_normalized[zbin_idx, :]), ia_bias=(IAFILE[:, 0], FIAz),
+# compute the tracer objects
+wil = [ccl.tracers.WeakLensingTracer(cosmo, dndz=(z_arr, niz_normalized_arr[zbin_idx, :]), ia_bias=(IAFILE[:, 0], FIAz),
                                      use_A_ia=False) for zbin_idx in range(zbins)]
-wig = [ccl.tracers.NumberCountsTracer(cosmo, has_rsd=False, dndz=(z_arr, niz_normalized[zbin_idx, :]),
+wig = [ccl.tracers.NumberCountsTracer(cosmo, has_rsd=False, dndz=(z_arr, niz_normalized_arr[zbin_idx, :]),
                                       bias=(z_arr, bias_array),
                                       mag_bias=None) for zbin_idx in range(zbins)]
 
+# get the radial kernels
 # comoving distance of z
 a_arr = 1 / (1 + z_arr)
 chi = ccl.comoving_radial_distance(cosmo, a_arr)
-
+# get kernel
 wil_PyCCL_arr = np.asarray([wil[zbin_idx].get_kernel(chi) for zbin_idx in range(zbins)])
-wig_PyCCL_arr = np.asarray([wig[zbin_idx].get_kernel(chi) for zbin_idx in range(zbins)])
+wig_PyCCL_arr = np.asarray([wig[zbin_idx].get_kernel(chi) for zbin_idx in range(zbins)])  # ! * bias_array if you want to include bias
 
 # using Sylvain's z
 # z = np.genfromtxt("C:/Users/dscio/Documents/Lavoro/Programmi/SSC_comparison/input/windows_sylvain/nz_source/z.txt")
 
-# TODO add check on i_array, i in niz must be an int, otherwise the function gets interpolated!!
+# TODO add check on zbin_idx_array, i in niz must be an int, otherwise the function gets interpolated!!
 # TODO re-compute and check niz_unnorm_quad(z), maybe compute it with scipy.special.erf
 
 
@@ -490,14 +490,14 @@ if cfg.load_external_bias:
 else:
     bz_values = np.asarray([b_of_z(zbin_idx) for zbin_idx in range(zbins)])
 
-bias_zgrid = np.asarray([stepwise_bias(z, bz_values) for z in z_arr])
+bias_zgrid = np.array([stepwise_bias(z, bz_values) for z in z_arr])
 
 # fill simpson integrand
 start = time.perf_counter()
 integrand = np.zeros((z_prime_array.size, z_arr.size, zbins))
 for z_idx, z_val in enumerate(z_arr):
     # output order of wil_tilde_integrand_vec is: z_prime, i
-    integrand[:, z_idx, :] = wil_tilde_integrand_vec(z_prime_array, z_val, i_array).T
+    integrand[:, z_idx, :] = wil_tilde_integrand_vec(z_prime_array, z_val, zbin_idx_array).T
 print(f'integrand wil_tilde_integrand with for loop filled in: {(time.perf_counter() - start):.2} s')
 
 start = time.perf_counter()
@@ -508,24 +508,49 @@ for z_idx, z_val in enumerate(z_arr):
     wil_tilde_array[z_idx, :] = simpson(integrand[z_prime_idx:, z_idx, :], z_prime_array[z_prime_idx:], axis=0)
 print(f'simpson integral done in: {(time.perf_counter() - start):.2} s')
 
-wig_IST_arr = wig_IST(z_arr, i_array, bias_zgrid=bias_zgrid)
-wil_IA_IST_arr = wil_IA_IST(z_arr, i_array, wil_tilde_array, Dz_array)
+wig_IST_arr = wig_IST(z_arr, zbin_idx_array, bias_zgrid=bias_zgrid)
+wil_IA_IST_arr = wil_IA_IST(z_arr, zbin_idx_array, wil_tilde_array, Dz_array)
 
+# ✅ niz has good agreement with niz_normalized_arr
+# ✅ wig_CLOE has good agreement wig, but has no bias - which was kinda the whole point of making the comparison...
+
+
+
+# ! VALIDATION against CLOE
+wig_CLOE = np.load('/Users/davide/Desktop/CLOE_outputs_niz_wf_validation/wig.npy').T  #
+wil_noia_CLOE = np.load('/Users/davide/Desktop/CLOE_outputs_niz_wf_validation/wil_noia.npy').T
+wil_ia_CLOE = np.load('/Users/davide/Desktop/CLOE_outputs_niz_wf_validation/wil_ia.npy').T
+niz_CLOE = np.load('/Users/davide/Desktop/CLOE_outputs_niz_wf_validation/niz.npy').T
+z_values_CLOE = np.load('/Users/davide/Desktop/CLOE_outputs_niz_wf_validation/zs.npy')
+
+# for a precise (as opposed to visual) comparison, use the same x values. I should update lumin_ratio to define it
+# in z = 0
+# z_arr = z_values_CLOE
+# assert np.array_equal(z_arr, z_values_CLOE), 'mine and CLOEs z values are not the same'
+
+# set rainbow colormap over 10 values
+cmap = plt.get_cmap('rainbow')
+colors = [cmap(i) for i in np.linspace(0, 1, zbins)]
+
+# check wil
 plt.figure()
 for i in range(zbins):
-    plt.plot(z_arr, wil_IA_IST_arr[:, i], label=f"wil i={i}")
-    plt.plot(z_arr, wil_PyCCL_arr[i, 0, :], label=f"wil PyCCL i={i}")
+    # plt.plot(z_arr, wil_IA_IST_arr[:, i], label=f"wil i={i}")
+    plt.plot(z_values_CLOE, wil_noia_CLOE[:, i] + wil_ia_CLOE[:, i], label=f"wil i={i}")
+    # plt.plot(z_arr, wil_PyCCL_arr[i, 0, :], label=f"wil PyCCL i={i}")
 plt.legend()
 plt.grid()
 plt.show()
 
-plt.figure()
-for i in range(zbins):
-    plt.plot(z_arr, wig_IST_arr[:, i], label=f"wig i={i}")
-    plt.plot(z_arr, wig_PyCCL_arr[i, 0, :], label=f"wig PyCCL i={i}")
-plt.legend()
-plt.grid()
-plt.show()
+# # check wig
+# plt.figure()
+# for i in range(zbins):
+#     plt.plot(z_arr, wig_IST_arr[:, i], label=f"wig i={i}", c=colors[i], ls='-')
+#     plt.plot(z_values_CLOE, wig_CLOE[:, i], label=f"wig i={i}", c=colors[i], ls='--')
+#     plt.plot(z_arr, wig_PyCCL_arr[i, 0, :], label=f"wig PyCCL i={i}", c=colors[i], ls=':')
+# plt.legend()
+# plt.grid()
+# plt.show()
 
 # insert z array values in the 0-th column
 wil_IA_IST_arr = np.insert(wil_IA_IST_arr, 0, z_arr, axis=1)
@@ -538,6 +563,12 @@ np.save(f'{project_path}/output/WF/{WFs_output_folder}/wig_IST_nz{zpoints}.npy',
 wig_pyccl = np.load('/Users/davide/Documents/Lavoro/Programmi/PyCCL_SSC/output/wf_and_cl_validation/wig_array.npy').T
 wil_pyccl = np.load('/Users/davide/Documents/Lavoro/Programmi/PyCCL_SSC/output/wf_and_cl_validation/wil_array.npy').T
 zvalues_pyccl = np.load('/Users/davide/Documents/Lavoro/Programmi/PyCCL_SSC/output/wf_and_cl_validation/ztab.npy').T
+
+
+
+
+
+# ! VALIDATION against FS1
 
 wig_fs1 = np.genfromtxt(
     '/Users/davide/Documents/Lavoro/Programmi/common_data/vincenzo/SPV3_07_2022/Flagship_1/KernelFun/WiGC-EP10.dat')
