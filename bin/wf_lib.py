@@ -82,8 +82,8 @@ z_max = 4
 sqrt2 = np.sqrt(2)
 
 f_out = ISTF.photoz_pdf['f_out']
-c_b, z_b, sigma_b = ISTF.photoz_pdf['c_b'], ISTF.photoz_pdf['z_b'], ISTF.photoz_pdf['sigma_b']
-c_o, z_o, sigma_o = ISTF.photoz_pdf['c_o'], ISTF.photoz_pdf['z_o'], ISTF.photoz_pdf['sigma_o']
+c_in, z_in, sigma_in = ISTF.photoz_pdf['c_b'], ISTF.photoz_pdf['z_b'], ISTF.photoz_pdf['sigma_b']
+c_out, z_out, sigma_out = ISTF.photoz_pdf['c_o'], ISTF.photoz_pdf['z_o'], ISTF.photoz_pdf['sigma_o']
 
 A_IA = ISTF.IA_free['A_IA']
 eta_IA = ISTF.IA_free['eta_IA']
@@ -113,17 +113,16 @@ warnings.warn('Stefanos niz are different from mines! Check the unnormalized one
 
 @njit
 def pph(z, z_p):
-    first_addendum = (1 - f_out) / (np.sqrt(2 * np.pi) * sigma_b * (1 + z)) * \
-                     np.exp(-0.5 * ((z - c_b * z_p - z_b) / (sigma_b * (1 + z))) ** 2)
-    second_addendum = f_out / (np.sqrt(2 * np.pi) * sigma_o * (1 + z)) * \
-                      np.exp(-0.5 * ((z - c_o * z_p - z_o) / (sigma_o * (1 + z))) ** 2)
+    first_addendum = (1 - f_out) / (np.sqrt(2 * np.pi) * sigma_in * (1 + z)) * \
+                     np.exp(-0.5 * ((z - c_in * z_p - z_in) / (sigma_in * (1 + z))) ** 2)
+    second_addendum = f_out / (np.sqrt(2 * np.pi) * sigma_out * (1 + z)) * \
+                      np.exp(-0.5 * ((z - c_out * z_p - z_out) / (sigma_out * (1 + z))) ** 2)
     return first_addendum + second_addendum
 
 
 @njit
 def n(z):
-    result = n_gal * (z / z_0) ** 2 * np.exp(-(z / z_0) ** (3 / 2))
-    return result
+    return n_gal * (z / z_0) ** 2 * np.exp(-(z / z_0) ** (3 / 2))
 
 
 ################################## niz_unnorm_quad(z) ##############################################
@@ -171,10 +170,14 @@ def n_i(z, i):
     return numerator / denominator
 
 
+def quad_integrand(z_p, z, pph=pph):
+    return n(z) * pph(z_p, z)
+
+
 def niz_unnormalized_quad(z, zbin_idx, pph=pph):
-    """with quad"""
-    integrand = lambda z_p, z: n(z) * pph(z, z_p)
-    return quad(integrand, z_minus[zbin_idx], z_plus[zbin_idx], args=z)[0]
+    """with quad - 0.620401143 s, faster than quadvec..."""
+    assert type(zbin_idx) == int, 'zbin_idx must be an integer'
+    return quad(quad_integrand, z_minus[zbin_idx], z_plus[zbin_idx], args=(z, pph))[0]
 
 
 # equal number of points per bin
@@ -227,14 +230,14 @@ def niz_unnormalized_quadvec(z, zbin_idx, pph=pph):
     return niz_unnorm
 
 
-def niz_normalization(zbin_idx, niz_unnormalized_func, pph):
+def niz_normalization_quad(niz_unnormalized_func, zbin_idx, pph):
     assert type(zbin_idx) == int, 'zbin_idx must be an integer'
-    return quad(niz_unnormalized_func, z_edges[0], z_edges[-1], args=(zbin_idx, pph))[0]
+    return quad(niz_unnormalized_func, z_min, z_max, args=(zbin_idx, pph))[0]
 
 
-def normalize_niz(niz_unnorm_arr, z_arr):
+def normalize_niz_simps(niz_unnorm_arr, z_grid):
     """ much more convenient; uses simps, and accepts as input an array of shape (zbins, z_points)"""
-    norm_factor = simps(niz_unnorm_arr, z_arr)
+    norm_factor = simps(niz_unnorm_arr, z_grid)
     niz_norm = (niz_unnorm_arr.T / norm_factor).T
     return niz_norm
 
@@ -246,61 +249,27 @@ def niz_normalized(z, zbin_idx, pph):
     """
     warnings.warn("this function should be deprecated")
     if type(z) == float or type(z) == int:
-        return niz_unnormalized_quadvec(z, zbin_idx, pph) / niz_normalization(zbin_idx, niz_unnormalized_quadvec, pph)
+        return niz_unnormalized_quadvec(z, zbin_idx, pph) / niz_normalization_quad(zbin_idx, niz_unnormalized_quadvec, pph)
 
     elif type(z) == np.ndarray:
         niz_unnormalized_arr = np.asarray([niz_unnormalized_quadvec(z_value, zbin_idx, pph) for z_value in z])
-        return niz_unnormalized_arr / niz_normalization(zbin_idx, niz_unnormalized_quadvec, pph)
+        return niz_unnormalized_arr / niz_normalization_quad(zbin_idx, niz_unnormalized_quadvec, pph)
 
     else:
         raise TypeError('z must be a float, an int or a numpy array')
 
 
-def niz_unnorm_analytical(z, zbin_idx):
-    """the one used by Stefano in the PyCCL notebook"""
-    addendum_1 = erf((z - z_o - c_o * z_edges[zbin_idx]) / (sqrt2 * (1 + z) * sigma_o))
-    addendum_2 = erf((z - z_o - c_o * z_edges[zbin_idx + 1]) / (sqrt2 * (1 + z) * sigma_o))
-    addendum_3 = erf((z - z_b - c_b * z_edges[zbin_idx]) / (sqrt2 * (1 + z) * sigma_b))
-    addendum_4 = erf((z - z_b - c_b * z_edges[zbin_idx + 1]) / (sqrt2 * (1 + z) * sigma_b))
+def niz_unnormalized_analytical(z, zbin_idx):
+    """the one used by Stefano in the PyCCL notebook
+    by far the fastest, 0.009592 s"""
+    addendum_1 = erf((z - z_out - c_out * z_edges[zbin_idx]) / (sqrt2 * (1 + z) * sigma_out))
+    addendum_2 = erf((z - z_out - c_out * z_edges[zbin_idx + 1]) / (sqrt2 * (1 + z) * sigma_out))
+    addendum_3 = erf((z - z_in - c_in * z_edges[zbin_idx]) / (sqrt2 * (1 + z) * sigma_in))
+    addendum_4 = erf((z - z_in - c_in * z_edges[zbin_idx + 1]) / (sqrt2 * (1 + z) * sigma_in))
 
-    result = n(z) / (2 * c_o * c_b) * \
-             (c_b * f_out * (addendum_1 - addendum_2) + c_o * (1 - f_out) * (addendum_3 - addendum_4))
+    result = n(z) / (2 * c_out * c_in) * \
+             (c_in * f_out * (addendum_1 - addendum_2) + c_out * (1 - f_out) * (addendum_3 - addendum_4))
     return result
-
-
-z_grid = np.linspace(0, 4, 1000)
-
-# niz_unnormalized_quadvec_arr = np.asarray([niz_unnormalized_quadvec(z_arr, zbin_idx) for zbin_idx in range(zbins)])
-niz_unnormalized_simps_2_arr = np.asarray([niz_unnormalized_simps_2(z_grid, zbin_idx) for zbin_idx in range(zbins)])
-niz_unnormalized_simps_arr = np.asarray([niz_unnormalized_simps(z_grid, zbin_idx) for zbin_idx in range(zbins)])
-niz_unnormalized_quad_arr = np.asarray([[niz_unnormalized_quad(z, zbin_idx)
-                                         for z in z_grid]
-                                        for zbin_idx in range(zbins)])
-niz_unnormalized_analytical = np.asarray([niz_unnorm_analytical(z_grid, zbin_idx) for zbin_idx in range(zbins)])
-# niz_unnormalized_dav_2 = niz(np.array(range(10)), z_arr).T
-
-# normalize nz: this should be the denominator of Eq. (112) of IST:f
-norm_factor_stef = simps(niz_unnormalized_analytical, z_grid)
-
-# niz_normalized_quadvec_arr = normalize_niz(niz_unnormalized_quadvec_arr, z_arr)
-niz_normalized_quad_arr = normalize_niz(niz_unnormalized_quad_arr, z_grid)
-niz_normalized_simps_arr = normalize_niz(niz_unnormalized_simps_arr, z_grid)
-niz_normalized_simps_2_arr = normalize_niz(niz_unnormalized_simps_2_arr, z_grid)
-niz_normalized_analytical = normalize_niz(niz_unnormalized_analytical, z_grid)
-niz_normalized_cfp = np.load('/Users/davide/Documents/Lavoro/Programmi/cl_v2/input/niz_cosmicfishpie.npy')
-
-# plot them
-fig, ax = plt.subplots(1, 1, figsize=(10, 6))
-zbin_idx = 5
-ax.plot(z_grid, niz_normalized_analytical[zbin_idx], label='analytical', lw=1.3)
-ax.plot(z_grid, niz_normalized_quad_arr[zbin_idx], label='quad', lw=1.3)
-ax.plot(z_grid, niz_normalized_simps_arr[zbin_idx], label='simps', lw=1.3)
-ax.plot(z_grid, niz_normalized_simps_2_arr[zbin_idx], label='simps_2', lw=1.3)
-# ax.plot(z_arr, niz_normalized_cfp[zbin_idx], label='cfp', lw=1.3)
-ax.set_xlabel('z')
-ax.set_ylabel('n_i(z)')
-ax.legend()
-plt.show()
 
 
 ################################## end niz ##############################################
@@ -491,8 +460,8 @@ def wig_PyCCL(z_grid, which_wf, bias_zgrid=None, cosmo=None):
         bias_zgrid = build_bias_zgrid(z_grid)
 
     # redshift distribution
-    niz_unnormalized = np.asarray([niz_unnorm_analytical(z_grid, zbin_idx) for zbin_idx in range(zbins)])
-    niz_normalized_arr = normalize_niz(niz_unnormalized, z_grid)
+    niz_unnormalized = np.asarray([niz_unnormalized_analytical(z_grid, zbin_idx) for zbin_idx in range(zbins)])
+    niz_normalized_arr = normalize_niz_simps(niz_unnormalized, z_grid)
 
     wig = [ccl.tracers.NumberCountsTracer(cosmo, has_rsd=False, dndz=(z_grid, niz_normalized_arr[zbin_idx, :]),
                                           bias=(z_grid, bias_zgrid), mag_bias=None) for zbin_idx in range(zbins)]
@@ -525,8 +494,8 @@ def wil_PyCCL(z_grid, which_wf, bias_zgrid=None, cosmo=None):
     FIAz = FIAzNoCosmoNoGrowth * (cosmo.cosmo.params.Omega_c + cosmo.cosmo.params.Omega_b) / growth_factor_PyCCL
 
     # redshift distribution
-    niz_unnormalized = np.asarray([niz_unnorm_analytical(z_grid, zbin_idx) for zbin_idx in range(zbins)])
-    niz_normalized_arr = normalize_niz(niz_unnormalized, z_grid)
+    niz_unnormalized = np.asarray([niz_unnormalized_analytical(z_grid, zbin_idx) for zbin_idx in range(zbins)])
+    niz_normalized_arr = normalize_niz_simps(niz_unnormalized, z_grid)
 
     # compute the tracer objects
     wil = [ccl.tracers.WeakLensingTracer(cosmo, dndz=(z_grid, niz_normalized_arr[zbin_idx, :]),
