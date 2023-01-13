@@ -43,11 +43,6 @@ matplotlib.use('Qt5Agg')
 ###############################################################################
 
 
-script_start = time.perf_counter()
-
-WFs_input_folder = "WFs_v7_zcut_noNormalization"
-WFs_output_folder = f"WFs_v16_{cfg.IA_model}_may22"
-
 # interpolating to speed up
 # with z cut following Vincenzo's niz
 # with n_bar normalisation
@@ -189,14 +184,6 @@ zp_bin_grid = np.zeros((zbins, zp_points_per_bin))
 for i in range(zbins):
     zp_bin_grid[i, :] = np.linspace(z_edges[i], z_edges[i + 1], zp_points_per_bin)
 
-# alternative: equispaced grid with z_edges added (does *not* work well, needs a lot of samples!!)
-zp_grid = np.linspace(0, 4, 4000)
-zp_grid = np.concatenate((z_edges, zp_grid))
-zp_grid = np.unique(zp_grid)
-zp_grid = np.sort(zp_grid)
-z_edges_idxs = np.array(
-    [np.where(zp_grid == z_edges[i])[0][0] for i in range(z_edges.shape[0])])  # indices of z_edges in zp_grid
-
 
 def niz_unnormalized_simps(z_grid, zbin_idx, pph=pph):
     """numerator of Eq. (112) of ISTF, with simpson integration
@@ -206,6 +193,15 @@ def niz_unnormalized_simps(z_grid, zbin_idx, pph=pph):
     niz_unnorm_integral = simps(y=niz_unnorm_integrand, x=zp_bin_grid[zbin_idx, :], axis=1)
     niz_unnorm_integral *= n(z_grid)
     return niz_unnorm_integral
+
+
+# alternative: equispaced grid with z_edges added (does *not* work well, needs a lot of samples!!)
+zp_grid = np.linspace(0, 4, 4000)
+zp_grid = np.concatenate((z_edges, zp_grid))
+zp_grid = np.unique(zp_grid)
+zp_grid = np.sort(zp_grid)
+z_edges_idxs = np.array(
+    [np.where(zp_grid == z_edges[i])[0][0] for i in range(z_edges.shape[0])])  # indices of z_edges in zp_grid
 
 
 def niz_unnormalized_simps_2(z_arr, zbin_idx, pph=pph):
@@ -272,34 +268,34 @@ def niz_unnorm_analytical(z, zbin_idx):
     return result
 
 
-z_arr = np.linspace(0, 4, 1000)
+z_grid = np.linspace(0, 4, 1000)
 
 # niz_unnormalized_quadvec_arr = np.asarray([niz_unnormalized_quadvec(z_arr, zbin_idx) for zbin_idx in range(zbins)])
-niz_unnormalized_simps_2_arr = np.asarray([niz_unnormalized_simps_2(z_arr, zbin_idx) for zbin_idx in range(zbins)])
-niz_unnormalized_simps_arr = np.asarray([niz_unnormalized_simps(z_arr, zbin_idx) for zbin_idx in range(zbins)])
+niz_unnormalized_simps_2_arr = np.asarray([niz_unnormalized_simps_2(z_grid, zbin_idx) for zbin_idx in range(zbins)])
+niz_unnormalized_simps_arr = np.asarray([niz_unnormalized_simps(z_grid, zbin_idx) for zbin_idx in range(zbins)])
 niz_unnormalized_quad_arr = np.asarray([[niz_unnormalized_quad(z, zbin_idx)
-                                         for z in z_arr]
+                                         for z in z_grid]
                                         for zbin_idx in range(zbins)])
-niz_unnormalized_analytical = np.asarray([niz_unnorm_analytical(z_arr, zbin_idx) for zbin_idx in range(zbins)])
+niz_unnormalized_analytical = np.asarray([niz_unnorm_analytical(z_grid, zbin_idx) for zbin_idx in range(zbins)])
 # niz_unnormalized_dav_2 = niz(np.array(range(10)), z_arr).T
 
 # normalize nz: this should be the denominator of Eq. (112) of IST:f
-norm_factor_stef = simps(niz_unnormalized_analytical, z_arr)
+norm_factor_stef = simps(niz_unnormalized_analytical, z_grid)
 
 # niz_normalized_quadvec_arr = normalize_niz(niz_unnormalized_quadvec_arr, z_arr)
-niz_normalized_quad_arr = normalize_niz(niz_unnormalized_quad_arr, z_arr)
-niz_normalized_simps_arr = normalize_niz(niz_unnormalized_simps_arr, z_arr)
-niz_normalized_simps_2_arr = normalize_niz(niz_unnormalized_simps_2_arr, z_arr)
-niz_normalized_analytical = normalize_niz(niz_unnormalized_analytical, z_arr)
+niz_normalized_quad_arr = normalize_niz(niz_unnormalized_quad_arr, z_grid)
+niz_normalized_simps_arr = normalize_niz(niz_unnormalized_simps_arr, z_grid)
+niz_normalized_simps_2_arr = normalize_niz(niz_unnormalized_simps_2_arr, z_grid)
+niz_normalized_analytical = normalize_niz(niz_unnormalized_analytical, z_grid)
 niz_normalized_cfp = np.load('/Users/davide/Documents/Lavoro/Programmi/cl_v2/input/niz_cosmicfishpie.npy')
 
 # plot them
 fig, ax = plt.subplots(1, 1, figsize=(10, 6))
 zbin_idx = 5
-ax.plot(z_arr, niz_normalized_analytical[zbin_idx], label='analytical', lw=1.3)
-ax.plot(z_arr, niz_normalized_quad_arr[zbin_idx], label='quad', lw=1.3)
-ax.plot(z_arr, niz_normalized_simps_arr[zbin_idx], label='simps', lw=1.3)
-ax.plot(z_arr, niz_normalized_simps_2_arr[zbin_idx], label='simps_2', lw=1.3)
+ax.plot(z_grid, niz_normalized_analytical[zbin_idx], label='analytical', lw=1.3)
+ax.plot(z_grid, niz_normalized_quad_arr[zbin_idx], label='quad', lw=1.3)
+ax.plot(z_grid, niz_normalized_simps_arr[zbin_idx], label='simps', lw=1.3)
+ax.plot(z_grid, niz_normalized_simps_2_arr[zbin_idx], label='simps_2', lw=1.3)
 # ax.plot(z_arr, niz_normalized_cfp[zbin_idx], label='cfp', lw=1.3)
 ax.set_xlabel('z')
 ax.set_ylabel('n_i(z)')
@@ -321,7 +317,7 @@ def wil_tilde_old(z, i):
     return result[0]
 
 
-def wil_tilde_integrand_vec(z_prime, z, zbin_idx_array):
+def wil_tilde_integrand_vec(z_prime, z):
     """
     vectorized version of wil_tilde_integrand, useful to fill up the computation of the integrand array for the simpson
     integration
@@ -329,9 +325,10 @@ def wil_tilde_integrand_vec(z_prime, z, zbin_idx_array):
     return niz(zbin_idx_array, z_prime).T * (1 - csmlib.r_tilde(z) / csmlib.r_tilde(z_prime))
 
 
-# def wil_tilde_new(z, zbin_idx_array):
-#     # version with quad vec, very slow, I don't know why. It is the zbin_idx_array that is vectorized, because z_prime is integrated over
-#     return quad_vec(wil_tilde_integrand_vec, z, z_max, args=(z, zbin_idx_array))[0]
+def wil_tilde_new(z):
+    # version with quad vec, very slow, I don't know why.
+    # It is the zbin_idx_array that is vectorized, because z_prime is integrated over
+    return quad_vec(wil_tilde_integrand_vec, z, z_max, args=(z, zbin_idx_array))[0]
 
 
 def wil_noIA_IST(z, wil_tilde_array):
@@ -340,7 +337,7 @@ def wil_noIA_IST(z, wil_tilde_array):
 
 ########################################################### IA
 # @njit
-def W_IA(z_array, zbin_idx_array):
+def W_IA(z_array):
     result = (H0 / c) * niz(zbin_idx_array, z_array).T * csmlib.E(z_array)
     return result
 
@@ -369,30 +366,61 @@ def Om(z):
 
 
 # @njit
-def Dz_integrand(x):
+def growth_factor_integrand(x):
     return Om(x) ** gamma / (1 + x)
 
 
-def D(z):
-    integral = quad(Dz_integrand, 0, z)[0]
+def growth_factor(z):
+    integral = quad(growth_factor_integrand, 0, z)[0]
     return np.exp(-integral)
 
 
 # @njit
-# def IA_term(z, i):
-#     return (A_IA * C_IA * Om0 * F_IA(z)) / D(z) * W_IA(z, i)
+# def IA_term_old(z, i):
+#     return (A_IA * C_IA * Om0 * F_IA(z)) / growth_factor(z) * W_IA(z, i)
 
 # @njit
-def IA_term(z_grid, zbin_idx_array, Dz_array):
-    return ((A_IA * C_IA * Om0 * F_IA(z_grid)) / Dz_array * W_IA(z_grid, zbin_idx_array)).T
+def IA_term(z_grid, growth_factor_arr):
+    """new version, vectorized"""
+    return ((A_IA * C_IA * Om0 * F_IA(z_grid)) / growth_factor_arr * W_IA(z_grid)).T
 
 
 # @njit
-def wil_IA_IST(z_grid, zbin_idx_array, wil_tilde_array, Dz_array):
-    return wil_noIA_IST(z_grid, wil_tilde_array) - IA_term(z_grid, zbin_idx_array, Dz_array)
+def wil_IA_IST(z_grid, wil_tilde_array, growth_factor_arr):
+    return wil_noIA_IST(z_grid, wil_tilde_array) - IA_term(z_grid, growth_factor_arr)
+
+
+def wil_final(z_grid, which_wf):
+    # precompute growth factor
+    growth_factor_arr = np.asarray([growth_factor(z) for z in z_grid])
+
+    # fill simpson integrand
+    zpoints_simps = 700
+    z_prime_array = np.linspace(z_min, z_max, zpoints_simps)
+    integrand = np.zeros((z_prime_array.size, z_grid.size, zbins))
+    for z_idx, z_val in enumerate(z_grid):
+        # output order of wil_tilde_integrand_vec is: z_prime, i
+        integrand[:, z_idx, :] = wil_tilde_integrand_vec(z_prime_array, z_val).T
+
+    # integrate with simpson to obtain wil_tilde
+    wil_tilde_array = np.zeros((z_grid.size, zbins))
+    for z_idx, z_val in enumerate(z_grid):
+        # take the closest value to the desired z - less than 0.1% difference with the desired z
+        z_prime_idx = np.argmin(np.abs(z_prime_array - z_val))
+        wil_tilde_array[z_idx, :] = simpson(integrand[z_prime_idx:, z_idx, :], z_prime_array[z_prime_idx:], axis=0)
+
+    if which_wf == 'with_IA':
+        return wil_IA_IST(z_grid, wil_tilde_array, growth_factor_arr)
+    elif which_wf == 'without_IA':
+        return wil_noIA_IST(z_grid, wil_tilde_array)
+    elif which_wf == 'IA_only':
+        return W_IA(z_grid).T
+    else:
+        raise ValueError('which_wf must be "with_IA", "without_IA" or "IA_only"')
 
 
 ###################### wig ###########################
+
 def b_of_z(zbin_idx):
     return np.sqrt(1 + z_mean[zbin_idx])
 
@@ -410,14 +438,27 @@ def stepwise_bias(z, bz_values):
             return bz_values[zbins - 1]  # last value
 
 
-def wig_IST(z_grid, bias_zgrid=None):
+def build_bias_zgrid(z_grid, zbins=zbins):
+    bz_values = np.asarray([b_of_z(zbin_idx) for zbin_idx in range(zbins)])
+    bias_zgrid = np.array([stepwise_bias(z, bz_values) for z in z_grid])
+    return bias_zgrid
 
+
+def wig_IST(z_grid, which_wf, bias_zgrid=None):
     if bias_zgrid is None:
-        bz_values = np.asarray([b_of_z(zbin_idx) for zbin_idx in range(zbins)])
-        bias_zgrid = np.array([stepwise_bias(z, bz_values) for z in z_grid])
+        bias_zgrid = build_bias_zgrid(z_grid)
 
-    result = (niz(zbin_idx_array, z_grid) / n_bar[zbin_idx_array]).T * H0 * csmlib.E(z_grid) / c * bias_zgrid
-    return result.T
+    result = (niz(zbin_idx_array, z_grid) / n_bar[zbin_idx_array]).T * H0 * csmlib.E(z_grid) / c
+
+    if which_wf == 'with_galaxy_bias':
+        result = result * bias_zgrid
+        return result.T
+    elif which_wf == 'without_galaxy_bias':
+        return result.T
+    elif which_wf == 'galaxy_bias_only':
+        return bias_zgrid
+    else:
+        raise ValueError('which_wf must be "with_galaxy_bias", "without_galaxy_bias" or "galaxy_bias_only"')
 
 
 ########################################################################################################################
@@ -425,117 +466,94 @@ def wig_IST(z_grid, bias_zgrid=None):
 ########################################################################################################################
 
 zpoints = 1000
-z_arr = np.linspace(z_min, z_max, zpoints)
+z_grid = np.linspace(z_min, z_max, zpoints)
 
-
-# using Sylvain's z
-# z = np.genfromtxt("C:/Users/dscio/Documents/Lavoro/Programmi/SSC_comparison/input/windows_sylvain/nz_source/z.txt")
 
 # TODO re-compute and check niz_unnorm_quad(z), maybe compute it with scipy.special.erf
 
 
-# ! compute wf
-
-# this is the final grid on which the wf are computed
-
-# this is the z grid used for all the other computations (i.e., integration)
-
-def wil_final(z_grid, which_wf):
-
-
-    # precompute growth factor
-    Dz_array = np.asarray([D(z) for z in z_grid])
-
-    # fill simpson integrand
-    zpoints_simps = 700
-    z_prime_array = np.linspace(z_min, z_max, zpoints_simps)
-    integrand = np.zeros((z_prime_array.size, z_grid.size, zbins))
-    for z_idx, z_val in enumerate(z_grid):
-        # output order of wil_tilde_integrand_vec is: z_prime, i
-        integrand[:, z_idx, :] = wil_tilde_integrand_vec(z_prime_array, z_val, zbin_idx_array).T
-
-    # integrate with simpson to obtain wil_tilde
-    wil_tilde_array = np.zeros((z_grid.size, zbins))
-    for z_idx, z_val in enumerate(z_grid):
-        # take the closest value to the desired z - less than 0.1% difference with the desired z
-        z_prime_idx = np.argmin(np.abs(z_prime_array - z_val))
-        wil_tilde_array[z_idx, :] = simpson(integrand[z_prime_idx:, z_idx, :], z_prime_array[z_prime_idx:], axis=0)
-
-    if which_wf == 'with_IA':
-        return wil_IA_IST(z_grid, zbin_idx_array, wil_tilde_array, Dz_array)
-    elif which_wf == 'without_IA':
-        return wil_noIA_IST(z_grid, wil_tilde_array)
-    elif which_wf == 'IA_only':
-        return W_IA(z_grid, zbin_idx_array).T
+def instantiate_PyCCL_cosmology():
+    Om_c0 = ISTF.primary['Om_m0'] - ISTF.primary['Om_b0']
+    cosmo = ccl.Cosmology(Omega_c=Om_c0, Omega_b=ISTF.primary['Om_b0'], w0=ISTF.primary['w_0'],
+                          wa=ISTF.primary['w_a'], h=ISTF.primary['h_0'], sigma8=ISTF.primary['sigma_8'],
+                          n_s=ISTF.primary['n_s'], m_nu=ISTF.extensions['m_nu'],
+                          Omega_k=1 - (Om_c0 + ISTF.primary['Om_b0']) - ISTF.extensions['Om_Lambda0'])
+    return cosmo
 
 
-
-
-# ! compute wf with PyCCL
-# instantiate cosmology
-def wf_PyCCL(cosmo=None):
+def wig_PyCCL(z_grid, which_wf, bias_zgrid=None, cosmo=None):
+    # instantiate cosmology
     if cosmo is None:
-        Om_c0 = ISTF.primary['Om_m0'] - ISTF.primary['Om_b0']
-        cosmo = ccl.Cosmology(Omega_c=Om_c0, Omega_b=ISTF.primary['Om_b0'], w0=ISTF.primary['w_0'],
-                              wa=ISTF.primary['w_a'], h=ISTF.primary['h_0'], sigma8=ISTF.primary['sigma_8'],
-                              n_s=ISTF.primary['n_s'], m_nu=ISTF.extensions['m_nu'],
-                              Omega_k=1 - (Om_c0 + ISTF.primary['Om_b0']) - ISTF.extensions['Om_Lambda0'])
+        cosmo = instantiate_PyCCL_cosmology()
 
-    # Intrinsic alignment
-    # IAFILE = np.genfromtxt(project_path / 'input/scaledmeanlum-E2Sa.dat')
-    # warnings.warn('could this cause some difference?')
-    IAFILE = lumin_ratio
-    z_arr_IA = IAFILE[:, 0]
-    FIAzNoCosmoNoGrowth = -1 * 1.72 * C_IA * (1 + IAFILE[:, 0]) ** eta_IA * IAFILE[:, 1] ** beta_IA
-    FIAz = FIAzNoCosmoNoGrowth * (cosmo.cosmo.params.Omega_c + cosmo.cosmo.params.Omega_b) / \
-           ccl.growth_factor(cosmo, 1 / (1 + IAFILE[:, 0]))
+    # build bias_zgrid
+    if bias_zgrid is None:
+        bias_zgrid = build_bias_zgrid(z_grid)
 
     # redshift distribution
-    niz_unnormalized = np.asarray([niz_unnorm_analytical(z_arr, zbin_idx) for zbin_idx in range(zbins)])
-    niz_normalized_arr = normalize_niz(niz_unnormalized, z_arr)
+    niz_unnormalized = np.asarray([niz_unnorm_analytical(z_grid, zbin_idx) for zbin_idx in range(zbins)])
+    niz_normalized_arr = normalize_niz(niz_unnormalized, z_grid)
+
+    wig = [ccl.tracers.NumberCountsTracer(cosmo, has_rsd=False, dndz=(z_grid, niz_normalized_arr[zbin_idx, :]),
+                                          bias=(z_grid, bias_zgrid), mag_bias=None) for zbin_idx in range(zbins)]
+
+    a_arr = 1 / (1 + z_grid)
+    chi = ccl.comoving_radial_distance(cosmo, a_arr)
+    wig_nobias_PyCCL_arr = np.asarray([wig[zbin_idx].get_kernel(chi) for zbin_idx in range(zbins)])
+
+    if which_wf == 'with_galaxy_bias':
+        result = wig_nobias_PyCCL_arr[:, 0, :] * bias_zgrid
+        return result.T
+    elif which_wf == 'without_galaxy_bias':
+        return wig_nobias_PyCCL_arr[:, 0, :].T
+    elif which_wf == 'galaxy_bias_only':
+        return bias_zgrid
+    else:
+        raise ValueError('which_wf must be "with_galaxy_bias", "without_galaxy_bias" or "galaxy_bias_only"')
+
+
+def wil_PyCCL(z_grid, which_wf, bias_zgrid=None, cosmo=None):
+    # instantiate cosmology
+    if cosmo is None:
+        cosmo = instantiate_PyCCL_cosmology()
+
+    # Intrinsic alignment
+    IAFILE = lumin_ratio
+    z_grid_IA = IAFILE[:, 0]
+    growth_factor_PyCCL = ccl.growth_factor(cosmo, a=1 / (1 + z_grid_IA))  # validated against mine
+    FIAzNoCosmoNoGrowth = -1 * 1.72 * C_IA * (1 + z_grid_IA) ** eta_IA * IAFILE[:, 1] ** beta_IA
+    FIAz = FIAzNoCosmoNoGrowth * (cosmo.cosmo.params.Omega_c + cosmo.cosmo.params.Omega_b) / growth_factor_PyCCL
+
+    # redshift distribution
+    niz_unnormalized = np.asarray([niz_unnorm_analytical(z_grid, zbin_idx) for zbin_idx in range(zbins)])
+    niz_normalized_arr = normalize_niz(niz_unnormalized, z_grid)
 
     # compute the tracer objects
-    wil = [ccl.tracers.WeakLensingTracer(cosmo, dndz=(z_arr, niz_normalized_arr[zbin_idx, :]), ia_bias=(z_arr_IA, FIAz),
-                                         use_A_ia=False) for zbin_idx in range(zbins)]
-    wig = [ccl.tracers.NumberCountsTracer(cosmo, has_rsd=False, dndz=(z_arr, niz_normalized_arr[zbin_idx, :]),
-                                          bias=(z_arr, bias_zgrid),
-                                          mag_bias=None) for zbin_idx in range(zbins)]
+    wil = [ccl.tracers.WeakLensingTracer(cosmo, dndz=(z_grid, niz_normalized_arr[zbin_idx, :]),
+                                         ia_bias=(z_grid_IA, FIAz), use_A_ia=False) for zbin_idx in range(zbins)]
 
     # get the radial kernels
     # comoving distance of z
-    a_arr = 1 / (1 + z_arr)
+    a_arr = 1 / (1 + z_grid)
     chi = ccl.comoving_radial_distance(cosmo, a_arr)
-    # get radial kernels
     wil_PyCCL_arr = np.asarray([wil[zbin_idx].get_kernel(chi) for zbin_idx in range(zbins)])
-    wig_nobias_PyCCL_arr = np.asarray([wig[zbin_idx].get_kernel(chi) for zbin_idx in range(zbins)])
 
     # these methods do not return ISTF kernels:
     # for wil, I have the 2 components w_gamma and w_IA separately, see below
-    wil_noIA_PyCCL_arr = wil_PyCCL_arr[:, 0, :]
-    wil_IAonly_PyCCL_arr = wil_PyCCL_arr[:, 1, :]
-    wil_IA_PyCCL_arr = wil_noIA_PyCCL_arr - (A_IA * C_IA * Om0 * F_IA(z_arr)) / Dz_array * wil_IAonly_PyCCL_arr
 
-    # for wig, I have to multiply by bias_zgrid if I want to include bias
-    wig_bias_PyCCL_arr = wig_nobias_PyCCL_arr * bias_zgrid
-
-    results = {'wil_noIA_PyCCL_arr': wil_noIA_PyCCL_arr,
-               'wil_IAonly_PyCCL_arr': wil_IAonly_PyCCL_arr,
-               'wil_IA_PyCCL_arr': wil_IA_PyCCL_arr,
-               'wig_bias_PyCCL_arr': wig_bias_PyCCL_arr,
-               'wig_nobias_PyCCL_arr': wig_nobias_PyCCL_arr,
-               'bias_zgrid': bias_zgrid,
-               }
-    return results
-
-
-
+    if which_wf == 'with_IA':
+        wil_noIA_PyCCL_arr = wil_PyCCL_arr[:, 0, :]
+        wil_IAonly_PyCCL_arr = wil_PyCCL_arr[:, 1, :]
+        growth_factor_PyCCL = ccl.growth_factor(cosmo, a=1 / (1 + z_grid))
+        result = wil_noIA_PyCCL_arr - (A_IA * C_IA * Om0 * F_IA(z_grid)) / growth_factor_PyCCL * wil_IAonly_PyCCL_arr
+        return result.T
+    elif which_wf == 'without_IA':
+        return wil_PyCCL_arr[:, 0, :].T
+    elif which_wf == 'IA_only':
+        return wil_PyCCL_arr[:, 1, :].T
+    else:
+        raise ValueError('which_wf must be "with_IA", "without_IA" or "IA_only"')
 
 # insert z array values in the 0-th column
 # wil_IA_IST_arr = np.insert(wil_IA_IST_arr, 0, z_arr, axis=1)
 # wig_IST_arr = np.insert(wig_IST_arr, 0, z_arr, axis=1)
-
-
-
-
-
-print("the script took %.2f seconds to run" % (time.perf_counter() - script_start))
