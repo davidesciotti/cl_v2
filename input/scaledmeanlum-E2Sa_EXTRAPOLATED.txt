@@ -1,3 +1,6 @@
+# note: the first value has been set by a linear extrapolation using the first 5 values;
+# the values above z= 2 or so are a linear extrapolation from the last two points.
+0.000000000000000000e+00 0.02555426454446987
 1.000000000000000021e-03 2.722508649483948440e-02
 3.000000000000000062e-03 3.056673039557875060e-02
 5.000000000000000104e-03 3.390837429631801681e-02

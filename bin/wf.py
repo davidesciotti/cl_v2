@@ -356,8 +356,8 @@ def W_IA(z_array, zbin_idx_array):
 #     return result
 
 # test this
-# note: does not accept z = 0 as first value!
-L_ratio = interp1d(lumin_ratio[:, 0], lumin_ratio[:, 1], kind='linear')
+lumin_ratio_z_values = lumin_ratio[:, 0]
+L_ratio = interp1d(lumin_ratio_z_values, lumin_ratio[:, 1], kind='linear')
 
 
 # @njit
@@ -554,7 +554,7 @@ np.save(f'{project_path}/output/WF/{WFs_output_folder}/z_array.npy', z_arr)
 np.save(f'{project_path}/output/WF/{WFs_output_folder}/bias_zgrid.npy', bias_zgrid)
 np.save(f'{project_path}/output/WF/{WFs_output_folder}/wil_noIA_IST_nz{zpoints}.npy', wil_noIA_IST_arr)
 np.save(f'{project_path}/output/WF/{WFs_output_folder}/wil_IAonly_IST_nz{zpoints}.npy', wil_IAonly_IST_arr)
-np.save(f'{project_path}/output/WF/{WFs_output_folder}/wig_nobias_IST_nz{zpoints}.npy', wig_IST_arr.T/bias_zgrid)
+np.save(f'{project_path}/output/WF/{WFs_output_folder}/wig_nobias_IST_nz{zpoints}.npy', wig_IST_arr.T / bias_zgrid)
 
 # ! VALIDATION against FS1
 # wig_fs1 = np.genfromtxt(
