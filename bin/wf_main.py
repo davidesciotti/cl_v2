@@ -32,8 +32,8 @@ z_grid = np.linspace(0, 4, zpoints)
 
 # let's now test niz
 # niz_unnormalized_quadvec_arr = np.asarray([niz_unnormalized_quadvec(z_arr, zbin_idx) for zbin_idx in range(zbins)])
-niz_unnormalized_simps_2_arr = np.asarray(
-    [wf_lib.niz_unnormalized_simps_2(z_grid, zbin_idx) for zbin_idx in range(zbins)])
+niz_unnormalized_simps_fullgrid_arr = np.asarray(
+    [wf_lib.niz_unnormalized_simps_fullgrid(z_grid, zbin_idx) for zbin_idx in range(zbins)])
 niz_unnormalized_simps_arr = np.asarray([wf_lib.niz_unnormalized_simps(z_grid, zbin_idx) for zbin_idx in range(zbins)])
 niz_unnormalized_quad_arr = np.asarray([[wf_lib.niz_unnormalized_quad(z, zbin_idx)
                                          for z in z_grid]
@@ -47,7 +47,7 @@ norm_factor_stef = simps(niz_unnormalized_analytical, z_grid)
 # niz_normalized_quadvec_arr = normalize_niz_simps(niz_unnormalized_quadvec_arr, z_arr)
 niz_normalized_quad_arr = wf_lib.normalize_niz_simps(niz_unnormalized_quad_arr, z_grid)
 niz_normalized_simps_arr = wf_lib.normalize_niz_simps(niz_unnormalized_simps_arr, z_grid)
-niz_normalized_simps_2_arr = wf_lib.normalize_niz_simps(niz_unnormalized_simps_2_arr, z_grid)
+niz_normalized_simps_fullgrid_arr = wf_lib.normalize_niz_simps(niz_unnormalized_simps_fullgrid_arr, z_grid)
 niz_normalized_analytical = wf_lib.normalize_niz_simps(niz_unnormalized_analytical, z_grid)
 niz_normalized_cfp = np.load('/Users/davide/Documents/Lavoro/Programmi/cl_v2/input/niz_cosmicfishpie.npy')
 
@@ -57,7 +57,7 @@ for zbin_idx in [0, 5, 9]:
     ax.plot(z_grid, niz_normalized_analytical[zbin_idx], label='analytical', lw=2, ls='-')
     ax.plot(z_grid, niz_normalized_quad_arr[zbin_idx], label='quad', lw=2, ls='--')
     ax.plot(z_grid, niz_normalized_simps_arr[zbin_idx], label='simps', lw=2, ls=':')
-    ax.plot(z_grid, niz_normalized_simps_2_arr[zbin_idx], label='simps_2', lw=2)
+    ax.plot(z_grid, niz_normalized_simps_fullgrid_arr[zbin_idx], label='simps_2', lw=2)
     # ax.plot(z_arr, niz_normalized_cfp[zbin_idx], label='cfp', lw=1.3)
 ax.set_xlabel('z')
 ax.set_ylabel('n_i(z)')

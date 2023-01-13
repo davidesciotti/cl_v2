@@ -104,8 +104,6 @@ lumin_ratio = np.genfromtxt(f"{project_path}/input/scaledmeanlum-E2Sa_EXTRAPOLAT
 
 warnings.warn('RECHECK Ox0 in cosmolib')
 warnings.warn('RECHECK z_mean')
-warnings.warn('n_gal prefactor has an effect? Do I normalize the distribution somewhere?')
-warnings.warn('Stefanos niz are different from mines! Check the unnormalized ones')
 
 
 ####################################### function definition
@@ -180,7 +178,6 @@ def niz_unnormalized_quad(z, zbin_idx, pph=pph):
     return quad(quad_integrand, z_minus[zbin_idx], z_plus[zbin_idx], args=(z, pph))[0]
 
 
-
 # SIMPSON WITH DIFFERENT POSSIBLE GRIDS:
 
 # intantiate a grid for simpson integration which passes through all the bin edges (which are the integration limits!)
@@ -212,7 +209,6 @@ def niz_unnormalized_simps(z_grid, zbin_idx, pph=pph):
     return niz_unnorm_integral
 
 
-
 # alternative: equispaced grid with z_edges added (does *not* work well, needs a lot of samples!!)
 zp_grid = np.linspace(z_min, z_max, 4000)
 zp_grid = np.concatenate((z_edges, zp_grid))
@@ -222,27 +218,29 @@ zp_grid = np.sort(zp_grid)
 z_edges_idxs = np.array([np.where(zp_grid == z_edges[i])[0][0] for i in range(z_edges.shape[0])])
 
 
-def niz_unnormalized_simps_2(z_arr, zbin_idx, pph=pph):
+def niz_unnormalized_simps_fullgrid(z_grid, zbin_idx, pph=pph):
     """numerator of Eq. (112) of ISTF, with simpson integration and "global" grid"""
-    warnings.warn('this function does not work well, needs very high number of samples;'
-                  ' the zp_bin_grid sampling is better')
+    warnings.warn('this function needs very high number of samples;'
+                  ' the zp_bin_grid sampling should perform better')
     assert type(zbin_idx) == int, 'zbin_idx must be an integer'
     z_minus = z_edges_idxs[zbin_idx]
     z_plus = z_edges_idxs[zbin_idx + 1]
-    niz_unnorm_integrand = np.array([pph(zp_grid[z_minus:z_plus], z) for z in z_arr])
+    niz_unnorm_integrand = np.array([pph(zp_grid[z_minus:z_plus], z) for z in z_grid])
     niz_unnorm_integral = simps(y=niz_unnorm_integrand, x=zp_grid[z_minus:z_plus], axis=1)
-    return niz_unnorm_integral * n_of_z(z_arr)
+    return niz_unnorm_integral * n_of_z(z_grid)
+
 
 
 def niz_unnormalized_quadvec(z, zbin_idx, pph=pph):
     """
-    :param z: float, does not accept an array. Same as above, but with quad_vec
+    :param z: float, does not accept an array. Same as above, but with quad_vec.
+    ! the difference is that the integrand can be a vector-valued function (in this case in z_p),
+    so it's supposedly faster? -> no, it's slower - 5.5253 s
     """
-    warnings.warn("niz_unnormalized_quadvec does not seem to work... check and time against simpson")
     assert type(zbin_idx) == int, 'zbin_idx must be an integer'
-    integrand = lambda z_p, z: n_of_z(z) * pph(z_p, z)
-    niz_unnorm = quad_vec(integrand, z_minus[zbin_idx], z_plus[zbin_idx], args=z)[0]
+    niz_unnorm = quad_vec(quad_integrand, z_minus[zbin_idx], z_plus[zbin_idx], args=(z, pph))[0]
     return niz_unnorm
+
 
 
 def niz_normalization_quad(niz_unnormalized_func, zbin_idx, pph=pph):
@@ -272,6 +270,8 @@ def niz_normalized(z, zbin_idx, pph=pph):
 
     else:
         raise TypeError('z must be a float, an int or a numpy array')
+
+
 
 
 def niz_unnormalized_analytical(z, zbin_idx):
