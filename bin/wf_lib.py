@@ -383,13 +383,13 @@ def D(z):
 #     return (A_IA * C_IA * Om0 * F_IA(z)) / D(z) * W_IA(z, i)
 
 # @njit
-def IA_term(z_array, zbin_idx_array, Dz_array):
-    return ((A_IA * C_IA * Om0 * F_IA(z_array)) / Dz_array * W_IA(z_array, zbin_idx_array)).T
+def IA_term(z_grid, zbin_idx_array, Dz_array):
+    return ((A_IA * C_IA * Om0 * F_IA(z_grid)) / Dz_array * W_IA(z_grid, zbin_idx_array)).T
 
 
 # @njit
-def wil_IA_IST(z_array, zbin_idx_array, wil_tilde_array, Dz_array):
-    return wil_noIA_IST(z_array, wil_tilde_array) - IA_term(z_array, zbin_idx_array, Dz_array)
+def wil_IA_IST(z_grid, zbin_idx_array, wil_tilde_array, Dz_array):
+    return wil_noIA_IST(z_grid, wil_tilde_array) - IA_term(z_grid, zbin_idx_array, Dz_array)
 
 
 ###################### wig ###########################
@@ -410,9 +410,13 @@ def stepwise_bias(z, bz_values):
             return bz_values[zbins - 1]  # last value
 
 
-def wig_IST(z_array, bias_zgrid, zbin_idx_array=zbin_idx_array):
-    # assert bias_zgrid.shape == (z_array.shape[0], )
-    result = (niz(zbin_idx_array, z_array) / n_bar[zbin_idx_array]).T * H0 * csmlib.E(z_array) / c * bias_zgrid
+def wig_IST(z_grid, bias_zgrid=None):
+
+    if bias_zgrid is None:
+        bz_values = np.asarray([b_of_z(zbin_idx) for zbin_idx in range(zbins)])
+        bias_zgrid = np.array([stepwise_bias(z, bz_values) for z in z_grid])
+
+    result = (niz(zbin_idx_array, z_grid) / n_bar[zbin_idx_array]).T * H0 * csmlib.E(z_grid) / c * bias_zgrid
     return result.T
 
 
@@ -423,14 +427,6 @@ def wig_IST(z_array, bias_zgrid, zbin_idx_array=zbin_idx_array):
 zpoints = 1000
 z_arr = np.linspace(z_min, z_max, zpoints)
 
-# ! load or import b_i(z)
-if cfg.load_external_bias:
-    warnings.warn('Loading external b_of_z, this import is specific to the flagship1/2 ngbTab files')
-    bz_values = np.genfromtxt(f'{cfg.bias_path}/{cfg.bias_filename}')[1, :]
-else:
-    bz_values = np.asarray([b_of_z(zbin_idx) for zbin_idx in range(zbins)])
-
-bias_zgrid = np.array([stepwise_bias(z, bz_values) for z in z_arr])
 
 # using Sylvain's z
 # z = np.genfromtxt("C:/Users/dscio/Documents/Lavoro/Programmi/SSC_comparison/input/windows_sylvain/nz_source/z.txt")
@@ -443,40 +439,36 @@ bias_zgrid = np.array([stepwise_bias(z, bz_values) for z in z_arr])
 # this is the final grid on which the wf are computed
 
 # this is the z grid used for all the other computations (i.e., integration)
-zpoints_simps = 700
-z_prime_array = np.linspace(z_min, z_max, zpoints_simps)
 
-def wil_final(z_arr, which_wf):
+def wil_final(z_grid, which_wf):
+
+
     # precompute growth factor
-    Dz_array = np.asarray([D(z) for z in z_arr])
+    Dz_array = np.asarray([D(z) for z in z_grid])
 
     # fill simpson integrand
-    start = time.perf_counter()
-    integrand = np.zeros((z_prime_array.size, z_arr.size, zbins))
-    for z_idx, z_val in enumerate(z_arr):
+    zpoints_simps = 700
+    z_prime_array = np.linspace(z_min, z_max, zpoints_simps)
+    integrand = np.zeros((z_prime_array.size, z_grid.size, zbins))
+    for z_idx, z_val in enumerate(z_grid):
         # output order of wil_tilde_integrand_vec is: z_prime, i
         integrand[:, z_idx, :] = wil_tilde_integrand_vec(z_prime_array, z_val, zbin_idx_array).T
-    print(f'integrand wil_tilde_integrand with for loop filled in: {(time.perf_counter() - start):.2} s')
 
-    start = time.perf_counter()
-    wil_tilde_array = np.zeros((z_arr.size, zbins))
-    for z_idx, z_val in enumerate(z_arr):
+    # integrate with simpson to obtain wil_tilde
+    wil_tilde_array = np.zeros((z_grid.size, zbins))
+    for z_idx, z_val in enumerate(z_grid):
         # take the closest value to the desired z - less than 0.1% difference with the desired z
         z_prime_idx = np.argmin(np.abs(z_prime_array - z_val))
         wil_tilde_array[z_idx, :] = simpson(integrand[z_prime_idx:, z_idx, :], z_prime_array[z_prime_idx:], axis=0)
-    print(f'simpson integral done in: {(time.perf_counter() - start):.2} s')
 
     if which_wf == 'with_IA':
-        return wil_IA_IST(z_arr, zbin_idx_array, wil_tilde_array, Dz_array)
+        return wil_IA_IST(z_grid, zbin_idx_array, wil_tilde_array, Dz_array)
     elif which_wf == 'without_IA':
-        return wil_noIA_IST(z_arr, wil_tilde_array)
+        return wil_noIA_IST(z_grid, wil_tilde_array)
     elif which_wf == 'IA_only':
-        return W_IA(z_arr, zbin_idx_array).T
+        return W_IA(z_grid, zbin_idx_array).T
 
 
-# finally, compute wf
-wig_IST_arr = wig_IST(z_arr, bias_zgrid=bias_zgrid)
-wil_IA_IST_arr = wil_final(z_arr, which_wf='with_IA')
 
 
 # ! compute wf with PyCCL
@@ -536,66 +528,14 @@ def wf_PyCCL(cosmo=None):
     return results
 
 
-# set rainbow colormap over 10 values
-cmap = plt.get_cmap('rainbow')
-colors = [cmap(i) for i in np.linspace(0, 1, zbins)]
 
-# check wil
-plt.figure()
-for i in range(zbins):
-    plt.plot(z_arr, wil_IA_IST_arr[:, i], label=f"wil tot i={i}", c=colors[i], ls='-')
-plt.legend()
-plt.grid()
-plt.show()
-
-# check wig
-plt.figure()
-for i in range(zbins):
-    plt.plot(z_arr, wig_IST_arr[:, i], label=f"wig i={i}", c=colors[i], ls='-')
-plt.legend()
-plt.grid()
-plt.show()
 
 # insert z array values in the 0-th column
 # wil_IA_IST_arr = np.insert(wil_IA_IST_arr, 0, z_arr, axis=1)
 # wig_IST_arr = np.insert(wig_IST_arr, 0, z_arr, axis=1)
 
-# save everythong:
-np.save(f'{project_path}/output/WF/{WFs_output_folder}/wil_IA_IST_nz{zpoints}.npy', wil_IA_IST_arr)
-np.save(f'{project_path}/output/WF/{WFs_output_folder}/wig_IST_nz{zpoints}.npy', wig_IST_arr)
 
-# as well as their "sub-components":
-np.save(f'{project_path}/output/WF/{WFs_output_folder}/z_array.npy', z_arr)
-np.save(f'{project_path}/output/WF/{WFs_output_folder}/bias_zgrid.npy', bias_zgrid)
-np.save(f'{project_path}/output/WF/{WFs_output_folder}/wil_noIA_IST_nz{zpoints}.npy', wil_noIA_IST_arr)
-np.save(f'{project_path}/output/WF/{WFs_output_folder}/wil_IAonly_IST_nz{zpoints}.npy', wil_IAonly_IST_arr)
-np.save(f'{project_path}/output/WF/{WFs_output_folder}/wig_nobias_IST_nz{zpoints}.npy', wig_IST_arr.T / bias_zgrid)
 
-# ! VALIDATION against FS1
-# wig_fs1 = np.genfromtxt(
-#     '/Users/davide/Documents/Lavoro/Programmi/common_data/vincenzo/SPV3_07_2022/Flagship_1/KernelFun/WiGC-EP10.dat')
-# wil_fs1 = np.genfromtxt(
-#     '/Users/davide/Documents/Lavoro/Programmi/common_data/vincenzo/SPV3_07_2022/Flagship_1/KernelFun/WiWL-EP10.dat')
-# zvalues_fs1 = wig_fs1[:, 0]
 
-# for zbin_idx in range(zbins):
-#     plt.plot(zvalues_pyccl, wig_pyccl[:, zbin_idx], label='wig pyccl')
-#     plt.plot(z_array, wig_IST_arr[:, zbin_idx + 1], label='wig davide', ls='--')
-# plt.legend()
-# plt.grid()
-
-# plt.figure()
-# for zbin_idx in range(zbins):
-#     plt.plot(zvalues_fs1, wig_fs1[:, zbin_idx + 1], label='wig fs1')
-#     plt.plot(z_arr, wig_IST_arr[:, zbin_idx + 1], label='wig davide', ls='--')
-# plt.legend()
-# plt.grid()
-#
-# plt.figure()
-# for zbin_idx in range(zbins):
-#     plt.plot(zvalues_fs1, wil_fs1[:, zbin_idx + 1], label='wil fs1')
-#     plt.plot(z_arr, wil_IA_IST_arr[:, zbin_idx + 1], label='wil davide', ls='--')
-# plt.legend()
-# plt.grid()
 
 print("the script took %.2f seconds to run" % (time.perf_counter() - script_start))
