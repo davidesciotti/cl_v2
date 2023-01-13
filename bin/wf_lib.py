@@ -112,7 +112,7 @@ warnings.warn('Stefanos niz are different from mines! Check the unnormalized one
 
 
 @njit
-def pph(z, z_p):
+def pph(z_p, z):
     first_addendum = (1 - f_out) / (np.sqrt(2 * np.pi) * sigma_in * (1 + z)) * \
                      np.exp(-0.5 * ((z - c_in * z_p - z_in) / (sigma_in * (1 + z))) ** 2)
     second_addendum = f_out / (np.sqrt(2 * np.pi) * sigma_out * (1 + z)) * \
@@ -121,7 +121,7 @@ def pph(z, z_p):
 
 
 @njit
-def n(z):
+def n_of_z(z):
     return n_gal * (z / z_0) ** 2 * np.exp(-(z / z_0) ** (3 / 2))
 
 
@@ -159,19 +159,19 @@ niz_import_cpy = niz_import.copy()  # remove redshift column
 niz = interp2d(zbin_idx_array, z_values_from_nz, niz_import_cpy, kind="linear")
 
 
-# note: the normalization of n(z) should be unimportant, here I compute a ratio
-# where n(z) is present both at the numerator and denominator!
+# note: the normalization of n_of_z(z) should be unimportant, here I compute a ratio
+# where n_of_z(z) is present both at the numerator and denominator!
 
 def n_i(z, i):
     """with quad"""
-    integrand = lambda z_p, z: n(z) * pph(z, z_p)
+    integrand = lambda z_p, z: n_of_z(z) * pph(z_p, z)
     numerator = quad(integrand, z_minus[i], z_plus[i], args=z)[0]
     denominator = dblquad(integrand, z_min, z_max, z_minus[i], z_plus[i])[0]
     return numerator / denominator
 
 
 def quad_integrand(z_p, z, pph=pph):
-    return n(z) * pph(z_p, z)
+    return n_of_z(z) * pph(z_p, z)
 
 
 def niz_unnormalized_quad(z, zbin_idx, pph=pph):
@@ -180,6 +180,10 @@ def niz_unnormalized_quad(z, zbin_idx, pph=pph):
     return quad(quad_integrand, z_minus[zbin_idx], z_plus[zbin_idx], args=(z, pph))[0]
 
 
+
+# SIMPSON WITH DIFFERENT POSSIBLE GRIDS:
+
+# intantiate a grid for simpson integration which passes through all the bin edges (which are the integration limits!)
 # equal number of points per bin
 zp_points = 500
 zp_points_per_bin = int(zp_points / zbins)
@@ -188,23 +192,34 @@ for i in range(zbins):
     zp_bin_grid[i, :] = np.linspace(z_edges[i], z_edges[i + 1], zp_points_per_bin)
 
 
+# more pythonic way of instantiating the same grid
+# zp_bin_grid = np.linspace(z_min, z_max, zp_points)
+# zp_bin_grid = np.append(zp_bin_grid, z_edges)  # add bin edges
+# zp_bin_grid = np.sort(zp_bin_grid)
+# zp_bin_grid = np.unique(zp_bin_grid)  # remove duplicates (first and last edges were already included)
+# zp_bin_grid = np.tile(zp_bin_grid, (zbins, 1))  # repeat the grid for each bin (in each row)
+# for i in range(zbins):  # remove all the points below the bin edge
+#     zp_bin_grid[i, :] = np.where(zp_bin_grid[i, :] > z_edges[i], zp_bin_grid[i, :], 0)
+
+
 def niz_unnormalized_simps(z_grid, zbin_idx, pph=pph):
     """numerator of Eq. (112) of ISTF, with simpson integration
     Not too fast (3.0980 s for 500 z_p points)"""
     assert type(zbin_idx) == int, 'zbin_idx must be an integer'  # TODO check if these slow down the code using scalene
     niz_unnorm_integrand = np.array([pph(zp_bin_grid[zbin_idx, :], z) for z in z_grid])
     niz_unnorm_integral = simps(y=niz_unnorm_integrand, x=zp_bin_grid[zbin_idx, :], axis=1)
-    niz_unnorm_integral *= n(z_grid)
+    niz_unnorm_integral *= n_of_z(z_grid)
     return niz_unnorm_integral
 
 
+
 # alternative: equispaced grid with z_edges added (does *not* work well, needs a lot of samples!!)
-zp_grid = np.linspace(0, 4, 4000)
+zp_grid = np.linspace(z_min, z_max, 4000)
 zp_grid = np.concatenate((z_edges, zp_grid))
 zp_grid = np.unique(zp_grid)
 zp_grid = np.sort(zp_grid)
-z_edges_idxs = np.array(
-    [np.where(zp_grid == z_edges[i])[0][0] for i in range(z_edges.shape[0])])  # indices of z_edges in zp_grid
+# indices of z_edges in zp_grid:
+z_edges_idxs = np.array([np.where(zp_grid == z_edges[i])[0][0] for i in range(z_edges.shape[0])])
 
 
 def niz_unnormalized_simps_2(z_arr, zbin_idx, pph=pph):
@@ -214,9 +229,9 @@ def niz_unnormalized_simps_2(z_arr, zbin_idx, pph=pph):
     assert type(zbin_idx) == int, 'zbin_idx must be an integer'
     z_minus = z_edges_idxs[zbin_idx]
     z_plus = z_edges_idxs[zbin_idx + 1]
-    niz_unnorm_integrand = np.array([pph(z, zp_grid[z_minus:z_plus]) for z in z_arr])
+    niz_unnorm_integrand = np.array([pph(zp_grid[z_minus:z_plus], z) for z in z_arr])
     niz_unnorm_integral = simps(y=niz_unnorm_integrand, x=zp_grid[z_minus:z_plus], axis=1)
-    return niz_unnorm_integral * n(z_arr)
+    return niz_unnorm_integral * n_of_z(z_arr)
 
 
 def niz_unnormalized_quadvec(z, zbin_idx, pph=pph):
@@ -225,12 +240,12 @@ def niz_unnormalized_quadvec(z, zbin_idx, pph=pph):
     """
     warnings.warn("niz_unnormalized_quadvec does not seem to work... check and time against simpson")
     assert type(zbin_idx) == int, 'zbin_idx must be an integer'
-    integrand = lambda z_p, z: n(z) * pph(z, z_p)
+    integrand = lambda z_p, z: n_of_z(z) * pph(z_p, z)
     niz_unnorm = quad_vec(integrand, z_minus[zbin_idx], z_plus[zbin_idx], args=z)[0]
     return niz_unnorm
 
 
-def niz_normalization_quad(niz_unnormalized_func, zbin_idx, pph):
+def niz_normalization_quad(niz_unnormalized_func, zbin_idx, pph=pph):
     assert type(zbin_idx) == int, 'zbin_idx must be an integer'
     return quad(niz_unnormalized_func, z_min, z_max, args=(zbin_idx, pph))[0]
 
@@ -242,18 +257,18 @@ def normalize_niz_simps(niz_unnorm_arr, z_grid):
     return niz_norm
 
 
-def niz_normalized(z, zbin_idx, pph):
+def niz_normalized(z, zbin_idx, pph=pph):
     """this is a wrapper function which normalizes the result.
     The if-else is needed not to compute the normalization for each z, but only once for each zbin_idx
     Note that the niz_unnormalized_quadvec function is not vectorized in z (its 1st argument)
     """
     warnings.warn("this function should be deprecated")
     if type(z) == float or type(z) == int:
-        return niz_unnormalized_quadvec(z, zbin_idx, pph) / niz_normalization_quad(zbin_idx, niz_unnormalized_quadvec, pph)
+        return niz_unnormalized_quadvec(z, zbin_idx) / niz_normalization_quad(zbin_idx, niz_unnormalized_quadvec)
 
     elif type(z) == np.ndarray:
-        niz_unnormalized_arr = np.asarray([niz_unnormalized_quadvec(z_value, zbin_idx, pph) for z_value in z])
-        return niz_unnormalized_arr / niz_normalization_quad(zbin_idx, niz_unnormalized_quadvec, pph)
+        niz_unnormalized_arr = np.asarray([niz_unnormalized_quadvec(z_value, zbin_idx) for z_value in z])
+        return niz_unnormalized_arr / niz_normalization_quad(zbin_idx, niz_unnormalized_quadvec)
 
     else:
         raise TypeError('z must be a float, an int or a numpy array')
@@ -267,7 +282,7 @@ def niz_unnormalized_analytical(z, zbin_idx):
     addendum_3 = erf((z - z_in - c_in * z_edges[zbin_idx]) / (sqrt2 * (1 + z) * sigma_in))
     addendum_4 = erf((z - z_in - c_in * z_edges[zbin_idx + 1]) / (sqrt2 * (1 + z) * sigma_in))
 
-    result = n(z) / (2 * c_out * c_in) * \
+    result = n_of_z(z) / (2 * c_out * c_in) * \
              (c_in * f_out * (addendum_1 - addendum_2) + c_out * (1 - f_out) * (addendum_3 - addendum_4))
     return result
 

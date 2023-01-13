@@ -44,11 +44,11 @@ niz_unnormalized_analytical = np.asarray([wf_lib.niz_unnormalized_analytical(z_g
 # normalize nz: this should be the denominator of Eq. (112) of IST:f
 norm_factor_stef = simps(niz_unnormalized_analytical, z_grid)
 
-# niz_normalized_quadvec_arr = normalize_niz(niz_unnormalized_quadvec_arr, z_arr)
-niz_normalized_quad_arr = wf_lib.normalize_niz(niz_unnormalized_quad_arr, z_grid)
-niz_normalized_simps_arr = wf_lib.normalize_niz(niz_unnormalized_simps_arr, z_grid)
-niz_normalized_simps_2_arr = wf_lib.normalize_niz(niz_unnormalized_simps_2_arr, z_grid)
-niz_normalized_analytical = wf_lib.normalize_niz(niz_unnormalized_analytical, z_grid)
+# niz_normalized_quadvec_arr = normalize_niz_simps(niz_unnormalized_quadvec_arr, z_arr)
+niz_normalized_quad_arr = wf_lib.normalize_niz_simps(niz_unnormalized_quad_arr, z_grid)
+niz_normalized_simps_arr = wf_lib.normalize_niz_simps(niz_unnormalized_simps_arr, z_grid)
+niz_normalized_simps_2_arr = wf_lib.normalize_niz_simps(niz_unnormalized_simps_2_arr, z_grid)
+niz_normalized_analytical = wf_lib.normalize_niz_simps(niz_unnormalized_analytical, z_grid)
 niz_normalized_cfp = np.load('/Users/davide/Documents/Lavoro/Programmi/cl_v2/input/niz_cosmicfishpie.npy')
 
 # plot them
