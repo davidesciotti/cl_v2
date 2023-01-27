@@ -13,6 +13,7 @@ from numba import njit
 from scipy.integrate import quad, quad_vec, simpson, dblquad, simps
 from scipy.interpolate import interp1d, interp2d
 from scipy.special import erf
+from functools import partial
 
 project_path = Path.cwd().parent
 home_path = Path.home()
@@ -473,7 +474,6 @@ def instantiate_PyCCL_cosmology():
 
 
 def wig_PyCCL(z_grid, which_wf, bias_zgrid=None, cosmo=None, return_PyCCL_object=False):
-
     # instantiate cosmology
     if cosmo is None:
         cosmo = instantiate_PyCCL_cosmology()
@@ -491,7 +491,6 @@ def wig_PyCCL(z_grid, which_wf, bias_zgrid=None, cosmo=None, return_PyCCL_object
 
     if return_PyCCL_object:
         return wig
-
 
     a_arr = 1 / (1 + z_grid)
     chi = ccl.comoving_radial_distance(cosmo, a_arr)
@@ -558,27 +557,36 @@ def wil_PyCCL(z_grid, which_wf, cosmo=None, return_PyCCL_object=False):
 # wil_IA_IST_arr = np.insert(wil_IA_IST_arr, 0, z_grid, axis=1)
 # wig_IST_arr = np.insert(wig_IST_arr, 0, z_grid, axis=1)
 
-def cl_PyCCL(wf_A, wf_B, ell, zbins, cosmo=None, pk=None):
+# ! for the moment, try to use the pk from array
 
+
+def cl_PyCCL(wf_A, wf_B, ell, zbins, is_auto_spectrum, pk2d, cosmo=None):
     # instantiate cosmology
     if cosmo is None:
         cosmo = instantiate_PyCCL_cosmology()
 
-    if pk is None:
+    nbl = len(ell)
+
+    if pk2d is None:
+        raise NotImplementedError('pk2d must be provided, not yet implemented to compute it here')
         kmin, kmax, nk = 1e-4, 1e1, 500
         k_arr = np.logspace(np.log10(kmin), np.log10(kmax), nk)
+        lk_arr = np.log(k_arr)
         z_grid = np.linspace(0, 4, 500)
         a_arr = 1 / (1 + z_grid)
-        pk = ccl.nonlin_matter_power(cosmo, k, a)
-        pk = ccl.Pk2D(a_arr=a_arr, lk_arr=lk_arr, pk_arr=Pklist, is_logp=False)
+        # pkfunc = lambda k, a: ccl.nonlin_matter_power(cosmo, k, a)
+        # this is because the pkfunc signature in ccl.Pk2 must be (k, a), not (cosmo, k, a) 👇
+        pkfunc = partial(ccl.nonlin_matter_power, cosmo=cosmo)
+        pk2d = ccl.Pk2D(pkfunc=pkfunc, a_arr=a_arr, lk_arr=lk_arr)
 
-    if np.array_equal(wf_A, wf_B):
-        cl = np.array([[ccl.angular_cl(cosmo, wf_A[zi], wf_B[zj], ell, p_of_k_a=pk)
-                        for zi in range(zbins)]
-                       for zj in range(zi, zbins)])
-        cl = cl + cl.T - np.diag(np.diag(cl))
+    cl = np.zeros((nbl, zbins, zbins))
+    if is_auto_spectrum:
+        for zi, zj in zip(np.triu_indices(10)[0], np.triu_indices(10)[1]):
+            cl[:, zi, zj] = ccl.angular_cl(cosmo, wf_A[zi], wf_B[zj], ell, p_of_k_a=pk2d)
+        for ell in range(nbl):
+            cl[ell, :, :] = mm.symmetrize_2d_array(cl[ell, :, :])
     else:
-        cl = np.array([[ccl.angular_cl(cosmo, wf_A[zi], wf_B[zj], ell, p_of_k_a=pk)
+        cl = np.array([[ccl.angular_cl(cosmo, wf_A[zi], wf_B[zj], ell, p_of_k_a=pk2d)
                         for zi in range(zbins)]
                        for zj in range(zbins)])
     return cl
