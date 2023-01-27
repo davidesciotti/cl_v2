@@ -230,7 +230,6 @@ def niz_unnormalized_simps_fullgrid(z_grid, zbin_idx, pph=pph):
     return niz_unnorm_integral * n_of_z(z_grid)
 
 
-
 def niz_unnormalized_quadvec(z, zbin_idx, pph=pph):
     """
     :param z: float, does not accept an array. Same as above, but with quad_vec.
@@ -240,7 +239,6 @@ def niz_unnormalized_quadvec(z, zbin_idx, pph=pph):
     assert type(zbin_idx) == int, 'zbin_idx must be an integer'
     niz_unnorm = quad_vec(quad_integrand, z_minus[zbin_idx], z_plus[zbin_idx], args=(z, pph))[0]
     return niz_unnorm
-
 
 
 def niz_normalization_quad(niz_unnormalized_func, zbin_idx, pph=pph):
@@ -272,8 +270,6 @@ def niz_normalized(z, zbin_idx, pph=pph):
         raise TypeError('z must be a float, an int or a numpy array')
 
 
-
-
 def niz_unnormalized_analytical(z, zbin_idx):
     """the one used by Stefano in the PyCCL notebook
     by far the fastest, 0.009592 s"""
@@ -285,6 +281,13 @@ def niz_unnormalized_analytical(z, zbin_idx):
     result = n_of_z(z) / (2 * c_out * c_in) * \
              (c_in * f_out * (addendum_1 - addendum_2) + c_out * (1 - f_out) * (addendum_3 - addendum_4))
     return result
+
+
+# ! test, delete
+z_grid = np.linspace(z_min, z_max, 1000)
+niz_analytical_arr = np.array([niz_unnormalized_analytical(z_grid, zbin_idx) for zbin_idx in range(zbins)]).T
+niz_analytical_arr_norm = normalize_niz_simps(niz_analytical_arr.T, z_grid).T
+niz_analytical_norm_interp = interp2d(zbin_idx_array, z_grid, niz_analytical_arr_norm, kind="linear")
 
 
 ################################## end niz ##############################################
@@ -321,8 +324,8 @@ def wil_noIA_IST(z, wil_tilde_array):
 
 ########################################################### IA
 # @njit
-def W_IA(z_array):
-    result = (H0 / c) * niz(zbin_idx_array, z_array).T * csmlib.E(z_array)
+def W_IA(z_grid):
+    result = (H0 / c) * niz(zbin_idx_array, z_grid).T * csmlib.E(z_grid)
     return result
 
 
@@ -432,6 +435,10 @@ def wig_IST(z_grid, which_wf, bias_zgrid=None):
     if bias_zgrid is None:
         bias_zgrid = build_bias_zgrid(z_grid)
 
+    # TODO There is probably room for optimization here, no need to use the callable for niz, just use the array...
+    # something like this (but it's already normalized...)
+    # result = (niz_analytical_arr_norm / n_bar[zbin_idx_array]).T * H0 * csmlib.E(z_grid) / c
+
     result = (niz(zbin_idx_array, z_grid) / n_bar[zbin_idx_array]).T * H0 * csmlib.E(z_grid) / c
 
     if which_wf == 'with_galaxy_bias':
@@ -465,7 +472,8 @@ def instantiate_PyCCL_cosmology():
     return cosmo
 
 
-def wig_PyCCL(z_grid, which_wf, bias_zgrid=None, cosmo=None):
+def wig_PyCCL(z_grid, which_wf, bias_zgrid=None, cosmo=None, return_PyCCL_object=False):
+
     # instantiate cosmology
     if cosmo is None:
         cosmo = instantiate_PyCCL_cosmology()
@@ -480,6 +488,10 @@ def wig_PyCCL(z_grid, which_wf, bias_zgrid=None, cosmo=None):
 
     wig = [ccl.tracers.NumberCountsTracer(cosmo, has_rsd=False, dndz=(z_grid, niz_normalized_arr[zbin_idx, :]),
                                           bias=(z_grid, bias_zgrid), mag_bias=None) for zbin_idx in range(zbins)]
+
+    if return_PyCCL_object:
+        return wig
+
 
     a_arr = 1 / (1 + z_grid)
     chi = ccl.comoving_radial_distance(cosmo, a_arr)
@@ -496,7 +508,7 @@ def wig_PyCCL(z_grid, which_wf, bias_zgrid=None, cosmo=None):
         raise ValueError('which_wf must be "with_galaxy_bias", "without_galaxy_bias" or "galaxy_bias_only"')
 
 
-def wil_PyCCL(z_grid, which_wf, bias_zgrid=None, cosmo=None):
+def wil_PyCCL(z_grid, which_wf, cosmo=None, return_PyCCL_object=False):
     # instantiate cosmology
     if cosmo is None:
         cosmo = instantiate_PyCCL_cosmology()
@@ -515,6 +527,9 @@ def wil_PyCCL(z_grid, which_wf, bias_zgrid=None, cosmo=None):
     # compute the tracer objects
     wil = [ccl.tracers.WeakLensingTracer(cosmo, dndz=(z_grid, niz_normalized_arr[zbin_idx, :]),
                                          ia_bias=(z_grid_IA, FIAz), use_A_ia=False) for zbin_idx in range(zbins)]
+
+    if return_PyCCL_object:
+        return wil
 
     # get the radial kernels
     # comoving distance of z
@@ -538,6 +553,32 @@ def wil_PyCCL(z_grid, which_wf, bias_zgrid=None, cosmo=None):
     else:
         raise ValueError('which_wf must be "with_IA", "without_IA" or "IA_only"')
 
+
 # insert z array values in the 0-th column
-# wil_IA_IST_arr = np.insert(wil_IA_IST_arr, 0, z_arr, axis=1)
-# wig_IST_arr = np.insert(wig_IST_arr, 0, z_arr, axis=1)
+# wil_IA_IST_arr = np.insert(wil_IA_IST_arr, 0, z_grid, axis=1)
+# wig_IST_arr = np.insert(wig_IST_arr, 0, z_grid, axis=1)
+
+def cl_PyCCL(wf_A, wf_B, ell, zbins, cosmo=None, pk=None):
+
+    # instantiate cosmology
+    if cosmo is None:
+        cosmo = instantiate_PyCCL_cosmology()
+
+    if pk is None:
+        kmin, kmax, nk = 1e-4, 1e1, 500
+        k_arr = np.logspace(np.log10(kmin), np.log10(kmax), nk)
+        z_grid = np.linspace(0, 4, 500)
+        a_arr = 1 / (1 + z_grid)
+        pk = ccl.nonlin_matter_power(cosmo, k, a)
+        pk = ccl.Pk2D(a_arr=a_arr, lk_arr=lk_arr, pk_arr=Pklist, is_logp=False)
+
+    if np.array_equal(wf_A, wf_B):
+        cl = np.array([[ccl.angular_cl(cosmo, wf_A[zi], wf_B[zj], ell, p_of_k_a=pk)
+                        for zi in range(zbins)]
+                       for zj in range(zi, zbins)])
+        cl = cl + cl.T - np.diag(np.diag(cl))
+    else:
+        cl = np.array([[ccl.angular_cl(cosmo, wf_A[zi], wf_B[zj], ell, p_of_k_a=pk)
+                        for zi in range(zbins)]
+                       for zj in range(zbins)])
+    return cl

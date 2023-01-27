@@ -6,18 +6,20 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.integrate import simps
 
-project_path = Path.cwd().parent.parent.parent
-job_path = Path.cwd().parent
+project_path = Path.cwd().parent
 
-sys.path.append(f'{project_path.parent}common_data/common_lib')
+sys.path.append(f'{project_path.parent}/common_data/common_lib')
 import my_module as mm
 import cosmo_lib as csmlib
 
-sys.path.append(f'{project_path.parent}common_data/common_config')
+sys.path.append(f'{project_path.parent}/common_data/common_config')
 import ISTF_fid_params as ISTFfid
 import mpl_cfg
 
-import wf_lib
+sys.path.append(f'{project_path.parent}/SSC_restructured_v2/bin')
+import ell_values
+
+import wf_cl_lib
 
 script_start = time.perf_counter()
 
@@ -29,42 +31,6 @@ WFs_output_folder = f"WFs_v17"
 zbins = 10
 zpoints = 1000
 z_grid = np.linspace(0, 4, zpoints)
-
-# let's now test niz
-# niz_unnormalized_quadvec_arr = np.asarray([niz_unnormalized_quadvec(z_arr, zbin_idx) for zbin_idx in range(zbins)])
-niz_unnormalized_simps_fullgrid_arr = np.asarray(
-    [wf_lib.niz_unnormalized_simps_fullgrid(z_grid, zbin_idx) for zbin_idx in range(zbins)])
-niz_unnormalized_simps_arr = np.asarray([wf_lib.niz_unnormalized_simps(z_grid, zbin_idx) for zbin_idx in range(zbins)])
-niz_unnormalized_quad_arr = np.asarray([[wf_lib.niz_unnormalized_quad(z, zbin_idx)
-                                         for z in z_grid]
-                                        for zbin_idx in range(zbins)])
-niz_unnormalized_analytical = np.asarray([wf_lib.niz_unnormalized_analytical(z_grid, zbin_idx) for zbin_idx in range(zbins)])
-# niz_unnormalized_dav_2 = niz(np.array(range(10)), z_arr).T
-
-# normalize nz: this should be the denominator of Eq. (112) of IST:f
-norm_factor_stef = simps(niz_unnormalized_analytical, z_grid)
-
-# niz_normalized_quadvec_arr = normalize_niz_simps(niz_unnormalized_quadvec_arr, z_arr)
-niz_normalized_quad_arr = wf_lib.normalize_niz_simps(niz_unnormalized_quad_arr, z_grid)
-niz_normalized_simps_arr = wf_lib.normalize_niz_simps(niz_unnormalized_simps_arr, z_grid)
-niz_normalized_simps_fullgrid_arr = wf_lib.normalize_niz_simps(niz_unnormalized_simps_fullgrid_arr, z_grid)
-niz_normalized_analytical = wf_lib.normalize_niz_simps(niz_unnormalized_analytical, z_grid)
-niz_normalized_cfp = np.load('/Users/davide/Documents/Lavoro/Programmi/cl_v2/input/niz_cosmicfishpie.npy')
-
-# plot them
-fig, ax = plt.subplots(1, 1, figsize=(10, 6))
-for zbin_idx in [0, 5, 9]:
-    ax.plot(z_grid, niz_normalized_analytical[zbin_idx], label='analytical', lw=2, ls='-')
-    ax.plot(z_grid, niz_normalized_quad_arr[zbin_idx], label='quad', lw=2, ls='--')
-    ax.plot(z_grid, niz_normalized_simps_arr[zbin_idx], label='simps', lw=2, ls=':')
-    ax.plot(z_grid, niz_normalized_simps_fullgrid_arr[zbin_idx], label='simps_2', lw=2)
-    # ax.plot(z_arr, niz_normalized_cfp[zbin_idx], label='cfp', lw=1.3)
-ax.set_xlabel('z')
-ax.set_ylabel('n_i(z)')
-ax.legend()
-plt.show()
-
-assert 1 > 2
 
 # my wf
 wig_IST = wf_lib.wig_IST(z_grid, 'with_galaxy_bias')
@@ -137,5 +103,12 @@ np.save(f'{project_path}/output/WF/{WFs_output_folder}/wig_nobias_IST_nz{zpoints
 # plt.legend()
 # plt.grid()
 
+# ! check the cls
+print('starting cl computation')
+ells_LL = ell_values.compute_ells(nbl=30, ell_min=10, ell_max=5000, recipe='ISTF')
+ells_GC = ell_values.compute_ells(nbl=30, ell_min=10, ell_max=3000, recipe='ISTF')
+wil_PyCCL_obj = wf_lib.wil_PyCCL(z_grid, 'with_IA', cosmo=None, return_PyCCL_object=True)
+wig_PyCCL_obj = wf_lib.wig_PyCCL(z_grid, 'with_galaxy_bias', cosmo=None, return_PyCCL_object=True)
+cl_LL = wf_lib.cl_PyCCL(wil_PyCCL_obj, wil_PyCCL_obj, ells_LL, zbins)
 
 print("the script took %.2f seconds to run" % (time.perf_counter() - script_start))
