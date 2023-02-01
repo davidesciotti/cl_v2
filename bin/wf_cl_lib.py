@@ -326,8 +326,9 @@ def wil_noIA_IST(z, wil_tilde_array):
 ########################################################### IA
 # @njit
 def W_IA(z_grid):
-    result = (H0 / c) * niz(zbin_idx_array, z_grid).T * csmlib.E(z_grid)
-    return result
+    warnings.warn("what about the normalization?")
+    warnings.warn("different niz for sources and lenses?")
+    return (H0 / c) * niz(zbin_idx_array, z_grid).T * csmlib.E(z_grid)
 
 
 # def L_ratio(z):
@@ -440,7 +441,8 @@ def wig_IST(z_grid, which_wf, bias_zgrid=None):
     # something like this (but it's already normalized...)
     # result = (niz_analytical_arr_norm / n_bar[zbin_idx_array]).T * H0 * csmlib.E(z_grid) / c
 
-    result = (niz(zbin_idx_array, z_grid) / n_bar[zbin_idx_array]).T * H0 * csmlib.E(z_grid) / c
+    # result = (niz(zbin_idx_array, z_grid) / n_bar[zbin_idx_array]).T * H0 * csmlib.E(z_grid) / c
+    result = W_IA(z_grid)  # it's the same! unless the sources are differen
 
     if which_wf == 'with_galaxy_bias':
         result = result * bias_zgrid
