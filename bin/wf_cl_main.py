@@ -134,19 +134,12 @@ ell_GG, _ = ell_values.compute_ells(nbl=30, ell_min=10, ell_max=3000, recipe='IS
 wil_PyCCL_obj = wf_cl_lib.wil_PyCCL(z_grid, 'with_IA', cosmo='ISTF_fiducial', return_PyCCL_object=True)
 wig_PyCCL_obj = wf_cl_lib.wig_PyCCL(z_grid, 'with_galaxy_bias', cosmo='ISTF_fiducial', return_PyCCL_object=True)
 
+# note: I can also pass pk2d = None, which uses the default non-linear pk stored in cosmo. The difference is below 10%.
 cl_LL = wf_cl_lib.cl_PyCCL(wil_PyCCL_obj, wil_PyCCL_obj, ell_LL, zbins, is_auto_spectrum=True, pk2d=Pk)
 cl_GL = wf_cl_lib.cl_PyCCL(wig_PyCCL_obj, wil_PyCCL_obj, ell_GG, zbins, is_auto_spectrum=False, pk2d=Pk)
 cl_GG = wf_cl_lib.cl_PyCCL(wig_PyCCL_obj, wig_PyCCL_obj, ell_GG, zbins, is_auto_spectrum=True, pk2d=Pk)
 
-cl_LL_2 = wf_cl_lib.cl_PyCCL(wil_PyCCL_obj, wil_PyCCL_obj, ell_LL, zbins, is_auto_spectrum=True, pk2d=None)
-cl_GL_2 = wf_cl_lib.cl_PyCCL(wig_PyCCL_obj, wil_PyCCL_obj, ell_GG, zbins, is_auto_spectrum=False, pk2d=None)
-cl_GG_2 = wf_cl_lib.cl_PyCCL(wig_PyCCL_obj, wig_PyCCL_obj, ell_GG, zbins, is_auto_spectrum=True, pk2d=None)
 
-i, j = 0, 0
-# plt.plot(ell_GG, cl_GG[:, 0, 1], label='cl_GG')
-# plt.plot(ell_GG, cl_GG[:, 1, 0], label='cl_GG')
-plt.plot(ell_LL, cl_LL[:, 0, 0], label='cl_LL')
-plt.plot(ell_LL, cl_LL_2[:, 0, 0], label='cl_LL_2')
 
 # TODO super easy: compute the covariance matrix here
 # TODO output the wf densely sampled to produce covmat with PySSC

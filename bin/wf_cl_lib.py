@@ -476,10 +476,15 @@ z_grid = np.linspace(z_min, z_max, zpoints)
 
 def instantiate_ISTFfid_PyCCL_cosmo_obj():
     Om_c0 = ISTF.primary['Om_m0'] - ISTF.primary['Om_b0']
+
+    Omega_k = 1 - (Om_c0 + ISTF.primary['Om_b0']) - ISTF.extensions['Om_Lambda0']
+    if np.abs(Omega_k) < 1e-10:
+        warnings.warn("Omega_k is very small but not exactly 0, probably due to numerical errors. Setting it to 0")
+        Omega_k = 0
+
     cosmo = ccl.Cosmology(Omega_c=Om_c0, Omega_b=ISTF.primary['Om_b0'], w0=ISTF.primary['w_0'],
                           wa=ISTF.primary['w_a'], h=ISTF.primary['h_0'], sigma8=ISTF.primary['sigma_8'],
-                          n_s=ISTF.primary['n_s'], m_nu=ISTF.extensions['m_nu'],
-                          Omega_k=1 - (Om_c0 + ISTF.primary['Om_b0']) - ISTF.extensions['Om_Lambda0'])
+                          n_s=ISTF.primary['n_s'], m_nu=ISTF.extensions['m_nu'], Omega_k=Omega_k)
     return cosmo
 
 
@@ -540,10 +545,6 @@ def wil_PyCCL(z_grid, which_wf, cosmo='ISTF_fiducial', return_PyCCL_object=False
     # compute the tracer objects
     wil = [ccl.tracers.WeakLensingTracer(cosmo, dndz=(z_grid, niz_normalized_arr[zbin_idx, :]),
                                          ia_bias=(z_grid_IA, FIAz), use_A_ia=False) for zbin_idx in range(zbins)]
-    warnings.warn('debug, delete these save')
-    np.save('/Users/davide/Desktop/debuggiiiiiiiin/FIAz.npy', FIAz)
-    np.save('/Users/davide/Desktop/debuggiiiiiiiin/niz_normalized_arr.npy', niz_normalized_arr)
-    np.save('/Users/davide/Desktop/debuggiiiiiiiin/z_grid_IA.npy', z_grid_IA)
 
     if return_PyCCL_object:
         return wil
