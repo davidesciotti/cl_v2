@@ -113,7 +113,7 @@ PkFILE = np.genfromtxt(project_path / 'data/pkz-Fiducial.txt')
 # ! XXX are the units correct?
 # Populate vectors for z, k [1/Mpc], and P(k,z) [Mpc^3]
 
-cosmo = wf_cl_lib.instantiate_PyCCL_cosmology()
+cosmo = wf_cl_lib.instantiate_ISTFfid_PyCCL_cosmo_obj()
 zlist = np.unique(PkFILE[:, 0])
 k_points = int(len(PkFILE[:, 2]) / len(zlist))
 klist = PkFILE[:k_points, 1] * cosmo.cosmo.params.h
@@ -131,22 +131,25 @@ print('starting cl computation')
 ell_LL, _ = ell_values.compute_ells(nbl=30, ell_min=10, ell_max=5000, recipe='ISTF')
 ell_GG, _ = ell_values.compute_ells(nbl=30, ell_min=10, ell_max=3000, recipe='ISTF')
 
-wil_PyCCL_obj = wf_cl_lib.wil_PyCCL(z_grid, 'with_IA', cosmo=None, return_PyCCL_object=True)
-wig_PyCCL_obj = wf_cl_lib.wig_PyCCL(z_grid, 'with_galaxy_bias', cosmo=None, return_PyCCL_object=True)
+wil_PyCCL_obj = wf_cl_lib.wil_PyCCL(z_grid, 'with_IA', cosmo='ISTF_fiducial', return_PyCCL_object=True)
+wig_PyCCL_obj = wf_cl_lib.wig_PyCCL(z_grid, 'with_galaxy_bias', cosmo='ISTF_fiducial', return_PyCCL_object=True)
 
 cl_LL = wf_cl_lib.cl_PyCCL(wil_PyCCL_obj, wil_PyCCL_obj, ell_LL, zbins, is_auto_spectrum=True, pk2d=Pk)
 cl_GL = wf_cl_lib.cl_PyCCL(wig_PyCCL_obj, wil_PyCCL_obj, ell_GG, zbins, is_auto_spectrum=False, pk2d=Pk)
 cl_GG = wf_cl_lib.cl_PyCCL(wig_PyCCL_obj, wig_PyCCL_obj, ell_GG, zbins, is_auto_spectrum=True, pk2d=Pk)
 
+cl_LL_2 = wf_cl_lib.cl_PyCCL(wil_PyCCL_obj, wil_PyCCL_obj, ell_LL, zbins, is_auto_spectrum=True, pk2d=None)
+cl_GL_2 = wf_cl_lib.cl_PyCCL(wig_PyCCL_obj, wil_PyCCL_obj, ell_GG, zbins, is_auto_spectrum=False, pk2d=None)
+cl_GG_2 = wf_cl_lib.cl_PyCCL(wig_PyCCL_obj, wig_PyCCL_obj, ell_GG, zbins, is_auto_spectrum=True, pk2d=None)
+
 i, j = 0, 0
-plt.plot(ell_GG, cl_GG[:, 0, 1], label='cl_GG')
-plt.plot(ell_GG, cl_GG[:, 1, 0], label='cl_GG')
-plt.plot(ell_LL, cl_LL[:, 0, 0], label='cl_GG')
+# plt.plot(ell_GG, cl_GG[:, 0, 1], label='cl_GG')
+# plt.plot(ell_GG, cl_GG[:, 1, 0], label='cl_GG')
+plt.plot(ell_LL, cl_LL[:, 0, 0], label='cl_LL')
+plt.plot(ell_LL, cl_LL_2[:, 0, 0], label='cl_LL_2')
 
 # TODO super easy: compute the covariance matrix here
 # TODO output the wf densely sampled to produce covmat with PySSC
-
-
 
 # ! new code: compute the derivatives
 

@@ -15,7 +15,7 @@ from scipy.interpolate import interp1d, interp2d
 from scipy.special import erf
 from functools import partial
 
-project_path = Path.cwd().parent
+# project_path = Path.cwd().parent
 project_path = '/Users/davide/Documents/Lavoro/Programmi/cl_v2'
 project_path_parent = '/Users/davide/Documents/Lavoro/Programmi/cl_v2'
 
@@ -32,6 +32,10 @@ import mpl_cfg
 # config files
 sys.path.append(f'{project_path}/config')
 import config_wlcl as cfg
+
+sys.path.append(f'{project_path_parent}/SSC_restructured_v2/bin')
+import ell_values
+
 
 # project modules
 # sys.path.append(f'{project_path}/bin')
@@ -435,9 +439,13 @@ def build_bias_zgrid(z_grid, zbins=zbins):
     return bias_zgrid
 
 
-def wig_IST(z_grid, which_wf, bias_zgrid=None):
-    if bias_zgrid is None:
+def wig_IST(z_grid, which_wf, bias_zgrid='ISTF_fiducial'):
+
+    if bias_zgrid == 'ISTF_fiducial':
         bias_zgrid = build_bias_zgrid(z_grid)
+
+    assert bias_zgrid.size == z_grid.size, 'bias_zgrid must have the same size as z_grid'
+
 
     # TODO There is probably room for optimization here, no need to use the callable for niz, just use the array...
     # something like this (but it's already normalized...)
@@ -468,7 +476,7 @@ z_grid = np.linspace(z_min, z_max, zpoints)
 # TODO re-compute and check niz_unnorm_quad(z), maybe compute it with scipy.special.erf
 
 
-def instantiate_PyCCL_cosmology():
+def instantiate_ISTFfid_PyCCL_cosmo_obj():
     Om_c0 = ISTF.primary['Om_m0'] - ISTF.primary['Om_b0']
     cosmo = ccl.Cosmology(Omega_c=Om_c0, Omega_b=ISTF.primary['Om_b0'], w0=ISTF.primary['w_0'],
                           wa=ISTF.primary['w_a'], h=ISTF.primary['h_0'], sigma8=ISTF.primary['sigma_8'],
@@ -477,10 +485,12 @@ def instantiate_PyCCL_cosmology():
     return cosmo
 
 
-def wig_PyCCL(z_grid, which_wf, bias_zgrid=None, cosmo=None, return_PyCCL_object=False):
+def wig_PyCCL(z_grid, which_wf, bias_zgrid=None, cosmo='ISTF_fiducial', return_PyCCL_object=False):
     # instantiate cosmology
-    if cosmo is None:
-        cosmo = instantiate_PyCCL_cosmology()
+    if cosmo == 'ISTF_fiducial':
+        cosmo = instantiate_ISTFfid_PyCCL_cosmo_obj()
+    elif cosmo is None:
+        raise ValueError('cosmo must be "ISTF_fiducial" or a PyCCL cosmology object')
 
     # build bias_zgrid
     if bias_zgrid is None:
@@ -511,10 +521,12 @@ def wig_PyCCL(z_grid, which_wf, bias_zgrid=None, cosmo=None, return_PyCCL_object
         raise ValueError('which_wf must be "with_galaxy_bias", "without_galaxy_bias" or "galaxy_bias_only"')
 
 
-def wil_PyCCL(z_grid, which_wf, cosmo=None, return_PyCCL_object=False):
+def wil_PyCCL(z_grid, which_wf, cosmo='ISTF_fiducial', return_PyCCL_object=False):
     # instantiate cosmology
-    if cosmo is None:
-        cosmo = instantiate_PyCCL_cosmology()
+    if cosmo == 'ISTF_fiducial':
+        cosmo = instantiate_ISTFfid_PyCCL_cosmo_obj()
+    elif cosmo is None:
+        raise ValueError('cosmo must be "ISTF_fiducial" or a PyCCL cosmology object')
 
     # Intrinsic alignment
     IAFILE = lumin_ratio
@@ -564,28 +576,32 @@ def wil_PyCCL(z_grid, which_wf, cosmo=None, return_PyCCL_object=False):
 # ! for the moment, try to use the pk from array
 
 
-def cl_PyCCL(wf_A, wf_B, ell, zbins, is_auto_spectrum, pk2d, cosmo=None):
+def cl_PyCCL(wf_A, wf_B, ell, zbins, is_auto_spectrum, pk2d, cosmo='ISTF_fiducial'):
+
     # instantiate cosmology
-    if cosmo is None:
-        cosmo = instantiate_PyCCL_cosmology()
+    if cosmo == 'ISTF_fiducial':
+        cosmo = instantiate_ISTFfid_PyCCL_cosmo_obj()
+    elif cosmo is None:
+        raise ValueError('cosmo must be "ISTF_fiducial" or a PyCCL cosmology object')
 
     nbl = len(ell)
 
-    if pk2d is None:
-        raise NotImplementedError('pk2d must be provided, not yet implemented to compute it here')
-        kmin, kmax, nk = 1e-4, 1e1, 500
-        k_arr = np.logspace(np.log10(kmin), np.log10(kmax), nk)
-        lk_arr = np.log(k_arr)
-        z_grid = np.linspace(0, 4, 500)
-        a_arr = 1 / (1 + z_grid)
-        # pkfunc = lambda k, a: ccl.nonlin_matter_power(cosmo, k, a)
-        # this is because the pkfunc signature in ccl.Pk2 must be (k, a), not (cosmo, k, a) 👇
-        pkfunc = partial(ccl.nonlin_matter_power, cosmo=cosmo)
-        pk2d = ccl.Pk2D(pkfunc=pkfunc, a_arr=a_arr, lk_arr=lk_arr)
+    # if pk2d is None:
+    #     # TODO implement the computation of the power spectrum here
+    #     raise NotImplementedError('pk2d must be provided, not yet implemented to compute it here')
+    #     kmin, kmax, nk = 1e-4, 1e1, 500
+    #     k_arr = np.logspace(np.log10(kmin), np.log10(kmax), nk)
+    #     lk_arr = np.log(k_arr)
+    #     z_grid = np.linspace(0, 4, 500)
+    #     a_arr = 1 / (1 + z_grid)
+    #     # pkfunc = lambda k, a: ccl.nonlin_matter_power(cosmo, k, a)
+    #     # this is because the pkfunc signature in ccl.Pk2 must be (k, a), not (cosmo, k, a) 👇
+    #     pkfunc = partial(ccl.nonlin_matter_power, cosmo=cosmo)
+    #     pk2d = ccl.Pk2D(pkfunc=pkfunc, a_arr=a_arr, lk_arr=lk_arr)
 
     cl = np.zeros((nbl, zbins, zbins))
     if is_auto_spectrum:
-        for zi, zj in zip(np.triu_indices(10)[0], np.triu_indices(10)[1]):
+        for zi, zj in zip(np.triu_indices(zbins)[0], np.triu_indices(zbins)[1]):
             cl[:, zi, zj] = ccl.angular_cl(cosmo, wf_A[zi], wf_B[zj], ell, p_of_k_a=pk2d)
         for ell in range(nbl):
             cl[ell, :, :] = mm.symmetrize_2d_array(cl[ell, :, :])
@@ -595,7 +611,9 @@ def cl_PyCCL(wf_A, wf_B, ell, zbins, is_auto_spectrum, pk2d, cosmo=None):
                        for zj in range(zbins)])
     return cl
 
+
 def stem(Cl_arr, variations_arr, zbins, nbl):
+
     # instantiate array of derivatives
     dCLL_arr = np.zeros((zbins, zbins, nbl))
 
@@ -638,3 +656,114 @@ def stem(Cl_arr, variations_arr, zbins, nbl):
                 dCLL_arr[i, j, ell] = m
 
     return dCLL_arr
+
+
+def compute_derivatives(free_params, fixed_params):
+    """
+    Compute the derivatives of the power spectrum with respect to the free parameters
+    """
+
+    percentages = np.asarray((-10., -5., -3.75, -2.5, -1.875, -1.25, -0.625, 0,
+                              0.625, 1.25, 1.875, 2.5, 3.75, 5., 10.)) / 100
+    num_variations = len(percentages)
+
+    # dictionary storing the perturbed values of the parameters around the fiducials
+    variations = {}
+    for key in free_params.keys():
+        variations[key] = free_params[key] * (1 + percentages)
+
+    # wa = 0, so the deviations are the percentages themselves
+    variations['wa'] = percentages
+
+    # declare cl and dcl vectors
+    CLL = {}
+    dCLL = {}
+
+    # loop over the free parameters and store the cls in a dictionary
+    for free_param_name in free_params.keys():
+
+        # instantiate derivatives array for the given free parameter
+        CLL[free_param_name] = np.zeros((num_variations, zbins, zbins, nbl))
+
+        # loop over the perturbed parameter's (i.e. free_param_name) values, stored in variations[free_param_name]
+        for variation_idx, free_params[free_param_name] in enumerate(variations[free_param_name]):
+            t0 = time.perf_counter()
+
+            # TODO check if the variations are consistent with the parameter's relations (eg omega_lambda?)
+            cosmo = ccl.Cosmology(Omega_c=(free_params['Om'] - free_params['Ob']),
+                                  Omega_b=free_params['Ob'],
+                                  w0=free_params['wz'],
+                                  wa=free_params['wa'],
+                                  h=free_params['h'],
+                                  sigma8=free_params['s8'],
+                                  n_s=free_params['ns'],
+                                  m_nu=fixed_params['m_nu'],
+                                  Omega_k=0.,
+                                  extra_parameters={"camb": {"dark_energy_model": "DarkEnergyPPF"}}  # to cross w = -1
+                                  )
+
+            ell_LL, _ = ell_values.compute_ells(nbl=30, ell_min=10, ell_max=5000, recipe='ISTF')
+            ell_GG, _ = ell_values.compute_ells(nbl=30, ell_min=10, ell_max=3000, recipe='ISTF')
+
+            wil_PyCCL_obj = wil_PyCCL(z_grid, 'with_IA', cosmo=cosmo, return_PyCCL_object=True)
+            wig_PyCCL_obj = wig_PyCCL(z_grid, 'with_galaxy_bias', cosmo=cosmo, return_PyCCL_object=True)
+
+            cl_LL = cl_PyCCL(wil_PyCCL_obj, wil_PyCCL_obj, ell_LL, zbins, is_auto_spectrum=True, pk2d=Pk)
+            cl_GL = cl_PyCCL(wig_PyCCL_obj, wil_PyCCL_obj, ell_GG, zbins, is_auto_spectrum=False, pk2d=Pk)
+            cl_GG = cl_PyCCL(wig_PyCCL_obj, wig_PyCCL_obj, ell_GG, zbins, is_auto_spectrum=True, pk2d=Pk)
+
+            # Computes the WL (w/ and w/o IAs) and GCph kernels
+            A_IA, eta_IA, beta_IA = free_params['Aia'], free_params['eIA'], free_params['bIA']
+            FIAzNoCosmoNoGrowth = - A_IA * CIA * (1 + IAFILE[:, 0]) ** eta_IA * IAFILE[:, 1] ** beta_IA
+
+            FIAz = FIAzNoCosmoNoGrowth * \
+                   (cosmo.cosmo.params.Omega_c + cosmo.cosmo.params.Omega_b) / \
+                   ccl.growth_factor(cosmo, 1 / (1 + IAFILE[:, 0]))
+
+            wil = [
+                ccl.WeakLensingTracer(cosmo, dndz=(ztab, nziEuclid[iz]), ia_bias=(IAFILE[:, 0], FIAz), use_A_ia=False)
+                for iz in range(zbins)]
+
+            wig = [
+                ccl.tracers.NumberCountsTracer(cosmo, has_rsd=False, dndz=(ztab, nziEuclid[iz]), bias=(ztab, b_array),
+                                               mag_bias=None) for iz in range(zbins)]
+
+            # you can also get the kernel in this way:
+            # wil_test = ccl.tracers.get_lensing_kernel(cosmo, dndz=(ztab, nziEuclid[0]), mag_bias=None)
+            # a_test = ccl.scale_factor_of_chi(cosmo, wil_test[0])
+            # z_test = 1 / a_test - 1
+
+            # Import fiducial P(k,z)
+            # PkFILE = np.genfromtxt(project_path / 'input/pkz-Fiducial.txt')
+            #
+            # # Populates vectors for z, k [1/Mpc], and P(k,z) [Mpc^3]
+            # zlist = np.unique(PkFILE[:, 0])
+            # k_points = int(len(PkFILE[:, 2]) / len(zlist))
+            # klist = PkFILE[:k_points, 1] * cosmo.cosmo.params.h
+            # z_points = len(zlist)
+            # Pklist = PkFILE[:, 3].reshape(z_points, k_points) / cosmo.cosmo.params.h ** 3
+            #
+            # # Create a Pk2D object
+            # a_arr = 1 / (1 + zlist[::-1])
+            # lk_arr = np.log(klist)  # it's the natural log, not log10
+            # Pk = ccl.Pk2D(a_arr=a_arr, lk_arr=lk_arr, pk_arr=Pklist, is_logp=False)
+
+            # the key specifies the parameter, but I still need an array of values - corresponding to the 15 variations over
+            # the fiducial values
+            CLL[free_param_name][variation_idx, :, :, :] = np.array([[ccl.angular_cl(cosmo, wil[iz], wil[jz],
+                                                                                     ell, p_of_k_a=None)
+                                                                      for iz in range(zbins)]
+                                                                     for jz in range(zbins)])
+
+            print(
+                f'{free_param_name} = {free_params[free_param_name]:.4f} Cls computed in {(time.perf_counter() - t0):.2f} '
+                f'seconds')
+
+        # once finished looping over the variations, reset the parameter to its fiducial value
+        free_params[free_param_name] = fiducial_params[free_param_name]
+
+        # save the Cls
+        dCLL[free_param_name] = stem(CLL[free_param_name], variations[free_param_name], zbins, nbl)
+
+        print(f'SteM derivative computed for {free_param_name}')
+        return dCLL
