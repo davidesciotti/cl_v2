@@ -10,6 +10,8 @@ import scipy.stats as stats
 from matplotlib.cm import get_cmap
 
 project_path = Path.cwd().parent
+project_path = '/Users/davide/Documents/Lavoro/Programmi/cl_v2'
+project_path_parent = '/Users/davide/Documents/Lavoro/Programmi'
 
 
 # ! wf settings
@@ -26,13 +28,13 @@ load_external_niz = True
 niz_path = f'{project_path}/output/niz'
 niz_filename = 'niz_normalized_nz2000.txt'
 # flagship
-# niz_path = f'{project_path.parent}/common_data/vincenzo/SPV3_07_2022/Flagship_{flagship_version}/InputNz/Lenses/Flagship'
+# niz_path = f'{project_path_parent}/common_data/vincenzo/SPV3_07_2022/Flagship_{flagship_version}/InputNz/Lenses/Flagship'
 # niz_filename = f'niTab-{EP_or_ED}{zbins}.dat'
 
 load_external_bias = False
 include_bias = True
 bias_selector = 'step_function'  # or "top-hat", or simply "constant?"
-bias_path = f'{project_path.parent}/common_data/vincenzo/SPV3_07_2022/Flagship_{flagship_version}/InputNz/Lenses/Flagship'
+bias_path = f'{project_path_parent}/common_data/vincenzo/SPV3_07_2022/Flagship_{flagship_version}/InputNz/Lenses/Flagship'
 bias_filename = f'ngbTab-{EP_or_ED}{zbins}.dat'
 
 if useIA:
@@ -44,7 +46,7 @@ else:
 
 # ! cl settings
 load_external_wf = True
-wil_path = f'{project_path.parent}/common_data/vincenzo/SPV3_07_2022/Flagship_{flagship_version}/KernelFun'
+wil_path = f'{project_path_parent}/common_data/vincenzo/SPV3_07_2022/Flagship_{flagship_version}/KernelFun'
 wil_filename = f'WiWL-{EP_or_ED}{zbins}.dat'
 wig_path = wil_path
 wig_filename = f'WiGC-{EP_or_ED}{zbins}.dat'

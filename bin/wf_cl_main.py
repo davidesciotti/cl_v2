@@ -30,7 +30,6 @@ start_time = time.perf_counter()
 
 # TODO link with config file for stuff like ell_max, ecc
 
-WFs_output_folder = f"WFs_v17"
 zbins = 10
 zpoints = 1000
 z_grid = np.linspace(0, 2.5, zpoints)
@@ -131,16 +130,25 @@ Pk = ccl.Pk2D(a_arr=a_arr, lk_arr=lk_arr, pk_arr=Pklist, is_logp=False)
 print('starting cl computation')
 ell_LL, _ = ell_values.compute_ells(nbl=30, ell_min=10, ell_max=5000, recipe='ISTF')
 ell_GG, _ = ell_values.compute_ells(nbl=30, ell_min=10, ell_max=3000, recipe='ISTF')
+
 wil_PyCCL_obj = wf_cl_lib.wil_PyCCL(z_grid, 'with_IA', cosmo=None, return_PyCCL_object=True)
 wig_PyCCL_obj = wf_cl_lib.wig_PyCCL(z_grid, 'with_galaxy_bias', cosmo=None, return_PyCCL_object=True)
-# cl_LL = wf_cl_lib.cl_PyCCL(wil_PyCCL_obj, wil_PyCCL_obj, ell_LL, zbins, is_auto_spectrum=True, pk2d=Pk)
-# cl_GL = wf_cl_lib.cl_PyCCL(wig_PyCCL_obj, wil_PyCCL_obj, ell_GG, zbins, is_auto_spectrum=False, pk2d=Pk)
+
+cl_LL = wf_cl_lib.cl_PyCCL(wil_PyCCL_obj, wil_PyCCL_obj, ell_LL, zbins, is_auto_spectrum=True, pk2d=Pk)
+cl_GL = wf_cl_lib.cl_PyCCL(wig_PyCCL_obj, wil_PyCCL_obj, ell_GG, zbins, is_auto_spectrum=False, pk2d=Pk)
 cl_GG = wf_cl_lib.cl_PyCCL(wig_PyCCL_obj, wig_PyCCL_obj, ell_GG, zbins, is_auto_spectrum=True, pk2d=Pk)
 
 i, j = 0, 0
 plt.plot(ell_GG, cl_GG[:, 0, 1], label='cl_GG')
 plt.plot(ell_GG, cl_GG[:, 1, 0], label='cl_GG')
-# plt.plot(ell_LL, cl_LL[:, 0, 0], label='cl_GG')
+plt.plot(ell_LL, cl_LL[:, 0, 0], label='cl_GG')
+
+# TODO super easy: compute the covariance matrix here
+# TODO output the wf densely sampled to produce covmat with PySSC
+
+
+
+# ! new code: compute the derivatives
 
 
 print("the script took %.2f seconds to run" % (time.perf_counter() - script_start))

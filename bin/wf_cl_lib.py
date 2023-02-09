@@ -16,15 +16,16 @@ from scipy.special import erf
 from functools import partial
 
 project_path = Path.cwd().parent
-home_path = Path.home()
+project_path = '/Users/davide/Documents/Lavoro/Programmi/cl_v2'
+project_path_parent = '/Users/davide/Documents/Lavoro/Programmi/cl_v2'
 
 # general libraries
-sys.path.append(f'{project_path.parent}/common_data/common_lib')
+sys.path.append(f'{project_path_parent}/common_data/common_lib')
 import my_module as mm
 import cosmo_lib as csmlib
 
 # general configurations
-sys.path.append(f'{project_path.parent}/common_data/common_config')
+sys.path.append(f'{project_path_parent}/common_data/common_config')
 import ISTF_fid_params as ISTF
 import mpl_cfg
 
@@ -254,12 +255,13 @@ def normalize_niz_simps(niz_unnorm_arr, z_grid):
     return niz_norm
 
 
-def niz_normalized(z, zbin_idx, pph=pph):
+def niz_normalized(z, zbin_idx):
     """this is a wrapper function which normalizes the result.
     The if-else is needed not to compute the normalization for each z, but only once for each zbin_idx
     Note that the niz_unnormalized_quadvec function is not vectorized in z (its 1st argument)
     """
     warnings.warn("this function should be deprecated")
+    warnings.warn('or add possibility to choose pph')
     if type(z) == float or type(z) == int:
         return niz_unnormalized_quadvec(z, zbin_idx) / niz_normalization_quad(zbin_idx, niz_unnormalized_quadvec)
 
@@ -592,3 +594,47 @@ def cl_PyCCL(wf_A, wf_B, ell, zbins, is_auto_spectrum, pk2d, cosmo=None):
                         for zi in range(zbins)]
                        for zj in range(zbins)])
     return cl
+
+def stem(Cl_arr, variations_arr, zbins, nbl):
+    # instantiate array of derivatives
+    dCLL_arr = np.zeros((zbins, zbins, nbl))
+
+    # create copy of the "x" and "y" arrays, because their items could get popped by the stem algorithm
+    Cl_arr_cpy = Cl_arr.copy()
+    variations_arr_cpy = variations_arr.copy()
+
+    # TODO is there a way to specify the axis along which to fit, instead of having to loop over i, j, ell?
+    for i in range(zbins):
+        for j in range(zbins):
+            for ell in range(nbl):
+
+                # perform linear fit
+                m, c = np.polyfit(variations_arr_cpy, Cl_arr_cpy[:, i, j, ell], deg=1)
+                fitted_y_values = m * variations_arr_cpy + c
+
+                # check % difference
+                perc_diffs = mm.percent_diff(Cl_arr_cpy[:, i, j, ell], fitted_y_values)
+
+                # as long as any element has a percent deviation greater than 1%, remove first and last values
+                while np.any(perc_diffs > 1):
+                    print('removing first and last values, perc_diffs array:', perc_diffs)
+
+                    # the condition is satisfied, removing the first and last values
+                    Cl_arr_cpy = np.delete(Cl_arr_cpy, [0, -1], axis=0)
+                    variations_arr_cpy = np.delete(variations_arr_cpy, [0, -1])
+
+                    # re-compute the fit on the reduced set
+                    m, c = np.polyfit(variations_arr_cpy, Cl_arr_cpy[:, i, j, ell], deg=1)
+                    fitted_y_values = m * variations_arr_cpy + c
+
+                    # test again
+                    perc_diffs = mm.percent_diff(Cl_arr_cpy[:, i, j, ell], fitted_y_values)
+
+                    # plt.figure()
+                    # plt.plot(Omega_c_values_toder, fitted_y_values, '--', lw=2, c=colors[iteration])
+                    # plt.plot(Omega_c_values_toder, CLL_toder[:, i, j, ell], marker='o', c=colors[iteration])
+
+                # store the value of the derivative
+                dCLL_arr[i, j, ell] = m
+
+    return dCLL_arr
