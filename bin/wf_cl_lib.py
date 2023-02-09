@@ -36,7 +36,6 @@ import config_wlcl as cfg
 sys.path.append(f'{project_path_parent}/SSC_restructured_v2/bin')
 import ell_values
 
-
 # project modules
 # sys.path.append(f'{project_path}/bin')
 
@@ -106,10 +105,11 @@ simps_z_step_size = 1e-4
 
 n_bar = np.genfromtxt(f"{project_path}/output/n_bar.txt")
 n_gal = ISTF.other_survey_specs['n_gal']
-lumin_ratio = np.genfromtxt(f"{project_path}/input/scaledmeanlum-E2Sa_EXTRAPOLATED.txt")
+lumin_ratio = np.genfromtxt(f"{project_path}/input/scaledmeanlum-E2Sa.dat")
 
 warnings.warn('RECHECK Ox0 in cosmolib')
 warnings.warn('RECHECK z_mean')
+warnings.warn('RECHECK lumin_ratio_extrapolated')
 
 
 ####################################### function definition
@@ -440,12 +440,10 @@ def build_bias_zgrid(z_grid, zbins=zbins):
 
 
 def wig_IST(z_grid, which_wf, bias_zgrid='ISTF_fiducial'):
-
     if bias_zgrid == 'ISTF_fiducial':
         bias_zgrid = build_bias_zgrid(z_grid)
 
     assert bias_zgrid.size == z_grid.size, 'bias_zgrid must have the same size as z_grid'
-
 
     # TODO There is probably room for optimization here, no need to use the callable for niz, just use the array...
     # something like this (but it's already normalized...)
@@ -542,6 +540,10 @@ def wil_PyCCL(z_grid, which_wf, cosmo='ISTF_fiducial', return_PyCCL_object=False
     # compute the tracer objects
     wil = [ccl.tracers.WeakLensingTracer(cosmo, dndz=(z_grid, niz_normalized_arr[zbin_idx, :]),
                                          ia_bias=(z_grid_IA, FIAz), use_A_ia=False) for zbin_idx in range(zbins)]
+    warnings.warn('debug, delete these save')
+    np.save('/Users/davide/Desktop/debuggiiiiiiiin/FIAz.npy', FIAz)
+    np.save('/Users/davide/Desktop/debuggiiiiiiiin/niz_normalized_arr.npy', niz_normalized_arr)
+    np.save('/Users/davide/Desktop/debuggiiiiiiiin/z_grid_IA.npy', z_grid_IA)
 
     if return_PyCCL_object:
         return wil
@@ -577,7 +579,6 @@ def wil_PyCCL(z_grid, which_wf, cosmo='ISTF_fiducial', return_PyCCL_object=False
 
 
 def cl_PyCCL(wf_A, wf_B, ell, zbins, is_auto_spectrum, pk2d, cosmo='ISTF_fiducial'):
-
     # instantiate cosmology
     if cosmo == 'ISTF_fiducial':
         cosmo = instantiate_ISTFfid_PyCCL_cosmo_obj()
@@ -613,7 +614,6 @@ def cl_PyCCL(wf_A, wf_B, ell, zbins, is_auto_spectrum, pk2d, cosmo='ISTF_fiducia
 
 
 def stem(Cl_arr, variations_arr, zbins, nbl):
-
     # instantiate array of derivatives
     dCLL_arr = np.zeros((zbins, zbins, nbl))
 
