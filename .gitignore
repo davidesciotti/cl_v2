@@ -20,3 +20,6 @@ output/WF/.DS_Store
 config/.DS_Store
 output/.DS_Store
 output/.DS_Store
+config/.DS_Store
+output/.DS_Store
+*.pyc

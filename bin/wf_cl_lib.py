@@ -290,13 +290,6 @@ def niz_unnormalized_analytical(z, zbin_idx):
     return result
 
 
-# ! test, delete
-z_grid = np.linspace(z_min, z_max, 1000)
-niz_analytical_arr = np.array([niz_unnormalized_analytical(z_grid, zbin_idx) for zbin_idx in range(zbins)]).T
-niz_analytical_arr_norm = normalize_niz_simps(niz_analytical_arr.T, z_grid).T
-niz_analytical_norm_interp = interp2d(zbin_idx_array, z_grid, niz_analytical_arr_norm, kind="linear")
-
-
 ################################## end niz ##############################################
 
 
@@ -467,9 +460,6 @@ def wig_IST(z_grid, which_wf, bias_zgrid='ISTF_fiducial'):
 ########################################################################################################################
 ########################################################################################################################
 
-zpoints = 1000
-z_grid = np.linspace(z_min, z_max, zpoints)
-
 
 # TODO re-compute and check niz_unnorm_quad(z), maybe compute it with scipy.special.erf
 
@@ -610,7 +600,7 @@ def cl_PyCCL(wf_A, wf_B, ell, zbins, is_auto_spectrum, pk2d, cosmo='ISTF_fiducia
     else:
         cl = np.array([[ccl.angular_cl(cosmo, wf_A[zi], wf_B[zj], ell, p_of_k_a=pk2d)
                         for zi in range(zbins)]
-                       for zj in range(zbins)])
+                       for zj in range(zbins)]).transpose(2, 0, 1)
     return cl
 
 
@@ -628,8 +618,8 @@ def stem(Cl_arr, variations_arr, zbins, nbl):
             for ell in range(nbl):
 
                 # perform linear fit
-                m, c = np.polyfit(variations_arr_cpy, Cl_arr_cpy[:, i, j, ell], deg=1)
-                fitted_y_values = m * variations_arr_cpy + c
+                angular_coefficient, c = np.polyfit(variations_arr_cpy, Cl_arr_cpy[:, i, j, ell], deg=1)
+                fitted_y_values = angular_coefficient * variations_arr_cpy + c
 
                 # check % difference
                 perc_diffs = mm.percent_diff(Cl_arr_cpy[:, i, j, ell], fitted_y_values)
@@ -643,8 +633,8 @@ def stem(Cl_arr, variations_arr, zbins, nbl):
                     variations_arr_cpy = np.delete(variations_arr_cpy, [0, -1])
 
                     # re-compute the fit on the reduced set
-                    m, c = np.polyfit(variations_arr_cpy, Cl_arr_cpy[:, i, j, ell], deg=1)
-                    fitted_y_values = m * variations_arr_cpy + c
+                    angular_coefficient, intercept = np.polyfit(variations_arr_cpy, Cl_arr_cpy[:, i, j, ell], deg=1)
+                    fitted_y_values = angular_coefficient * variations_arr_cpy + intercept
 
                     # test again
                     perc_diffs = mm.percent_diff(Cl_arr_cpy[:, i, j, ell], fitted_y_values)
@@ -654,15 +644,19 @@ def stem(Cl_arr, variations_arr, zbins, nbl):
                     # plt.plot(Omega_c_values_toder, CLL_toder[:, i, j, ell], marker='o', c=colors[iteration])
 
                 # store the value of the derivative
-                dCLL_arr[i, j, ell] = m
+                dCLL_arr[i, j, ell] = angular_coefficient
 
     return dCLL_arr
 
 
-def compute_derivatives(free_params, fixed_params):
+def compute_derivatives(fiducial_params, free_params, fixed_params, z_grid, zbins, ell_LL, ell_GG, Pk=None):
     """
     Compute the derivatives of the power spectrum with respect to the free parameters
     """
+    # TODO cleanup the function, + make it single-probe
+
+    nbl_WL = len(ell_LL)
+    nbl_GC = len(ell_GG)
 
     percentages = np.asarray((-10., -5., -3.75, -2.5, -1.875, -1.25, -0.625, 0,
                               0.625, 1.25, 1.875, 2.5, 3.75, 5., 10.)) / 100
@@ -677,14 +671,16 @@ def compute_derivatives(free_params, fixed_params):
     variations['wa'] = percentages
 
     # declare cl and dcl vectors
-    CLL = {}
-    dCLL = {}
+    cl_LL, cl_GL, cl_GG = {}, {}, {}
+    dcl_LL, dcl_GL, dcl_GG = {}, {}, {}
 
     # loop over the free parameters and store the cls in a dictionary
     for free_param_name in free_params.keys():
 
-        # instantiate derivatives array for the given free parameter
-        CLL[free_param_name] = np.zeros((num_variations, zbins, zbins, nbl))
+        # instantiate derivatives array for the given free parameter key
+        cl_LL[free_param_name] = np.zeros((num_variations, nbl_WL, zbins, zbins))
+        cl_GL[free_param_name] = np.zeros((num_variations, nbl_GC, zbins, zbins))
+        cl_GG[free_param_name] = np.zeros((num_variations, nbl_GC, zbins, zbins))
 
         # loop over the perturbed parameter's (i.e. free_param_name) values, stored in variations[free_param_name]
         for variation_idx, free_params[free_param_name] in enumerate(variations[free_param_name]):
@@ -703,32 +699,32 @@ def compute_derivatives(free_params, fixed_params):
                                   extra_parameters={"camb": {"dark_energy_model": "DarkEnergyPPF"}}  # to cross w = -1
                                   )
 
-            ell_LL, _ = ell_values.compute_ells(nbl=30, ell_min=10, ell_max=5000, recipe='ISTF')
-            ell_GG, _ = ell_values.compute_ells(nbl=30, ell_min=10, ell_max=3000, recipe='ISTF')
-
             wil_PyCCL_obj = wil_PyCCL(z_grid, 'with_IA', cosmo=cosmo, return_PyCCL_object=True)
             wig_PyCCL_obj = wig_PyCCL(z_grid, 'with_galaxy_bias', cosmo=cosmo, return_PyCCL_object=True)
 
-            cl_LL = cl_PyCCL(wil_PyCCL_obj, wil_PyCCL_obj, ell_LL, zbins, is_auto_spectrum=True, pk2d=Pk)
-            cl_GL = cl_PyCCL(wig_PyCCL_obj, wil_PyCCL_obj, ell_GG, zbins, is_auto_spectrum=False, pk2d=Pk)
-            cl_GG = cl_PyCCL(wig_PyCCL_obj, wig_PyCCL_obj, ell_GG, zbins, is_auto_spectrum=True, pk2d=Pk)
+            cl_LL[free_param_name][variation_idx, :, :, :] = cl_PyCCL(wil_PyCCL_obj, wil_PyCCL_obj, ell_LL, zbins,
+                                                                      is_auto_spectrum=True, pk2d=Pk)
+            cl_GL[free_param_name][variation_idx, :, :, :] = cl_PyCCL(wig_PyCCL_obj, wil_PyCCL_obj, ell_GG, zbins,
+                                                                      is_auto_spectrum=False, pk2d=Pk)
+            cl_GG[free_param_name][variation_idx, :, :, :] = cl_PyCCL(wig_PyCCL_obj, wig_PyCCL_obj, ell_GG, zbins,
+                                                                      is_auto_spectrum=True, pk2d=Pk)
 
-            # Computes the WL (w/ and w/o IAs) and GCph kernels
-            A_IA, eta_IA, beta_IA = free_params['Aia'], free_params['eIA'], free_params['bIA']
-            FIAzNoCosmoNoGrowth = - A_IA * CIA * (1 + IAFILE[:, 0]) ** eta_IA * IAFILE[:, 1] ** beta_IA
-
-            FIAz = FIAzNoCosmoNoGrowth * \
-                   (cosmo.cosmo.params.Omega_c + cosmo.cosmo.params.Omega_b) / \
-                   ccl.growth_factor(cosmo, 1 / (1 + IAFILE[:, 0]))
-
-            wil = [
-                ccl.WeakLensingTracer(cosmo, dndz=(ztab, nziEuclid[iz]), ia_bias=(IAFILE[:, 0], FIAz), use_A_ia=False)
-                for iz in range(zbins)]
-
-            wig = [
-                ccl.tracers.NumberCountsTracer(cosmo, has_rsd=False, dndz=(ztab, nziEuclid[iz]), bias=(ztab, b_array),
-                                               mag_bias=None) for iz in range(zbins)]
-
+            # # Computes the WL (w/ and w/o IAs) and GCph kernels
+            # A_IA, eta_IA, beta_IA = free_params['Aia'], free_params['eIA'], free_params['bIA']
+            # FIAzNoCosmoNoGrowth = - A_IA * CIA * (1 + IAFILE[:, 0]) ** eta_IA * IAFILE[:, 1] ** beta_IA
+            #
+            # FIAz = FIAzNoCosmoNoGrowth * \
+            #        (cosmo.cosmo.params.Omega_c + cosmo.cosmo.params.Omega_b) / \
+            #        ccl.growth_factor(cosmo, 1 / (1 + IAFILE[:, 0]))
+            #
+            # wil = [
+            #     ccl.WeakLensingTracer(cosmo, dndz=(ztab, nziEuclid[iz]), ia_bias=(IAFILE[:, 0], FIAz), use_A_ia=False)
+            #     for iz in range(zbins)]
+            #
+            # wig = [
+            #     ccl.tracers.NumberCountsTracer(cosmo, has_rsd=False, dndz=(ztab, nziEuclid[iz]), bias=(ztab, b_array),
+            #                                    mag_bias=None) for iz in range(zbins)]
+            #
             # you can also get the kernel in this way:
             # wil_test = ccl.tracers.get_lensing_kernel(cosmo, dndz=(ztab, nziEuclid[0]), mag_bias=None)
             # a_test = ccl.scale_factor_of_chi(cosmo, wil_test[0])
@@ -751,10 +747,10 @@ def compute_derivatives(free_params, fixed_params):
 
             # the key specifies the parameter, but I still need an array of values - corresponding to the 15 variations over
             # the fiducial values
-            CLL[free_param_name][variation_idx, :, :, :] = np.array([[ccl.angular_cl(cosmo, wil[iz], wil[jz],
-                                                                                     ell, p_of_k_a=None)
-                                                                      for iz in range(zbins)]
-                                                                     for jz in range(zbins)])
+            # CLL[free_param_name][variation_idx, :, :, :] = np.array([[ccl.angular_cl(cosmo, wil[iz], wil[jz],
+            #                                                                          ell, p_of_k_a=None)
+            #                                                           for iz in range(zbins)]
+            #                                                          for jz in range(zbins)])
 
             print(
                 f'{free_param_name} = {free_params[free_param_name]:.4f} Cls computed in {(time.perf_counter() - t0):.2f} '
@@ -764,7 +760,9 @@ def compute_derivatives(free_params, fixed_params):
         free_params[free_param_name] = fiducial_params[free_param_name]
 
         # save the Cls
-        dCLL[free_param_name] = stem(CLL[free_param_name], variations[free_param_name], zbins, nbl)
+        dcl_LL[free_param_name] = stem(cl_LL[free_param_name], variations[free_param_name], zbins, nbl_WL)
+        dcl_GL[free_param_name] = stem(cl_GL[free_param_name], variations[free_param_name], zbins, nbl_GC)
+        dcl_GG[free_param_name] = stem(cl_GG[free_param_name], variations[free_param_name], zbins, nbl_GC)
 
         print(f'SteM derivative computed for {free_param_name}')
-        return dCLL
+        return dcl_LL, dcl_GL, dcl_GG

@@ -1,5 +1,6 @@
 import sys
 import time
+import warnings
 from pathlib import Path
 import matplotlib
 import matplotlib.pyplot as plt
@@ -8,6 +9,9 @@ from scipy.integrate import simps
 import pyccl as ccl
 
 project_path = Path.cwd().parent
+
+sys.path.append(f'{project_path}/config')
+import config_wlcl as cfg
 
 sys.path.append(f'{project_path.parent}/common_data/common_lib')
 import my_module as mm
@@ -19,6 +23,10 @@ import mpl_cfg
 
 sys.path.append(f'{project_path.parent}/SSC_restructured_v2/bin')
 import ell_values
+import covariance as cov_lib
+
+sys.path.append(f'{project_path.parent}/SSC_restructured_v2/jobs/ISTF/config')
+import config_ISTF_cl15gen as cfg_ISTF
 
 import wf_cl_lib
 
@@ -30,9 +38,8 @@ start_time = time.perf_counter()
 
 # TODO link with config file for stuff like ell_max, ecc
 
-zbins = 10
-zpoints = 1000
-z_grid = np.linspace(0, 2.5, zpoints)
+zbins = cfg.zbins
+z_grid = cfg.z_grid
 
 """
 # my wf
@@ -128,23 +135,54 @@ Pk = ccl.Pk2D(a_arr=a_arr, lk_arr=lk_arr, pk_arr=Pklist, is_logp=False)
 
 # ! check the cls
 print('starting cl computation')
-ell_LL, _ = ell_values.compute_ells(nbl=30, ell_min=10, ell_max=5000, recipe='ISTF')
-ell_GG, _ = ell_values.compute_ells(nbl=30, ell_min=10, ell_max=3000, recipe='ISTF')
+ell_LL, delta_LL = ell_values.compute_ells(nbl=30, ell_min=10, ell_max=5000, recipe='ISTF')
+ell_GC, delta_GG = ell_values.compute_ells(nbl=30, ell_min=10, ell_max=3000, recipe='ISTF')
 
 wil_PyCCL_obj = wf_cl_lib.wil_PyCCL(z_grid, 'with_IA', cosmo='ISTF_fiducial', return_PyCCL_object=True)
 wig_PyCCL_obj = wf_cl_lib.wig_PyCCL(z_grid, 'with_galaxy_bias', cosmo='ISTF_fiducial', return_PyCCL_object=True)
 
-# note: I can also pass pk2d = None, which uses the default non-linear pk stored in cosmo. The difference is below 10%.
-cl_LL = wf_cl_lib.cl_PyCCL(wil_PyCCL_obj, wil_PyCCL_obj, ell_LL, zbins, is_auto_spectrum=True, pk2d=Pk)
-cl_GL = wf_cl_lib.cl_PyCCL(wig_PyCCL_obj, wil_PyCCL_obj, ell_GG, zbins, is_auto_spectrum=False, pk2d=Pk)
-cl_GG = wf_cl_lib.cl_PyCCL(wig_PyCCL_obj, wig_PyCCL_obj, ell_GG, zbins, is_auto_spectrum=True, pk2d=Pk)
-
+# note: I can also pass pk2d=None, which uses the default non-linear pk stored in cosmo. The difference is below 10%.
+warnings.warn('I should use pk=None because thats what is used in the derivatives!!!')
+cl_LL = wf_cl_lib.cl_PyCCL(wil_PyCCL_obj, wil_PyCCL_obj, ell_LL, zbins, is_auto_spectrum=True, pk2d=None)
+cl_GL = wf_cl_lib.cl_PyCCL(wig_PyCCL_obj, wil_PyCCL_obj, ell_GC, zbins, is_auto_spectrum=False, pk2d=None)
+cl_GG = wf_cl_lib.cl_PyCCL(wig_PyCCL_obj, wig_PyCCL_obj, ell_GC, zbins, is_auto_spectrum=True, pk2d=None)
 
 
 # TODO super easy: compute the covariance matrix here
-# TODO output the wf densely sampled to produce covmat with PySSC
+cl_dict_3D = {'LL': cl_LL, 'GL': cl_GL, 'GG': cl_GG}
+ell_dict = {
+    'ell_WL': ell_LL,
+    'ell_GC': ell_GC,
+    'ell_WA': ell_LL,  # ! wrong, but I don't use WA at the moment
+}
+
+delta_dict = {
+    'delta_l_WL': delta_LL,
+    'delta_l_GC': delta_GG,
+    'delta_l_WA': delta_LL,  # ! wrong, but I don't use WA at the moment
+}
+
+
+general_cfg = cfg_ISTF.general_cfg
+covariance_cfg = cfg_ISTF.covariance_cfg
+# a random one, again, it will not be used!
+Sijkl = np.load('/Users/davide/Documents/Lavoro/Programmi/SSC_restructured_v2/jobs/SPV3_magcut_zcut/output/'
+                'Flagship_2/sijkl/sijkl_WF-FS2_nz7002_zbinsED13_IATrue_ML245_ZL00_MS245_ZS00.npy')
+
+cov_dict = cov_lib.compute_cov(general_cfg, covariance_cfg, ell_dict, delta_dict, cl_dict_3D, rl_dict_3D=None, Sijkl=None)
+
+assert 1 > 2
 
 # ! new code: compute the derivatives
+fiducial_params = cfg.fiducial_params
+free_params = cfg.free_params
+fixed_params = cfg.fixed_params
+dcl_LL, dcl_GL, dcl_GG = wf_cl_lib.compute_derivatives(fiducial_params, free_params, fixed_params, z_grid, zbins, ell_LL, ell_GC, Pk=None)
+
+
+# TODO output the wf densely sampled to produce covmat with PySSC
+
+
 
 
 print("the script took %.2f seconds to run" % (time.perf_counter() - script_start))

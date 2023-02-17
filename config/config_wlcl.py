@@ -14,11 +14,15 @@ project_path = '/Users/davide/Documents/Lavoro/Programmi/cl_v2'
 project_path_parent = '/Users/davide/Documents/Lavoro/Programmi'
 
 
+zbins = 10
+z_min, z_max, zpoints = 0., 2.5, 1000
+z_grid = np.linspace(z_min, z_max, zpoints)
+
+
 # ! wf settings
 use_camb = False  # whether to use camb for the wf (doesn't work yet...)
 IA_model = 'eNLA'
 useIA = True
-zbins = 10
 EP_or_ED = 'EP'
 flagship_version = 1
 
@@ -73,3 +77,27 @@ whos_wf = 'marco'
 nz_WF_import = 10_000  # number of z points in the wf imported
 
 cl_out_folder = f'cl_v21/Cij_WF{whos_wf}_{IA_flag}_nz{zsteps_cl}'
+
+# ! derivatives stuff
+params_names_LL = ["Om", "Ob", "wz", "wa", "h", "ns", "s8", "Aia", "eIA", "bIA"]
+params_names_XC = params_names_LL + ["bL01", "bL02", "bL03", "bL04", "bL05", "bL06", "bL07", "bL08",
+                                     "bL09", "bL10"]
+
+# this is immutable
+fiducial_params = {'Om': 0.32,
+                   'Ob': 0.05,
+                   'wz': -1.0,
+                   'wa': 0.0,
+                   'h': 0.67,
+                   'ns': 0.96,
+                   's8': 0.815583,
+                   'Aia': 1.72,
+                   'eIA': -0.41,
+                   'bIA': 2.17,
+                   # ... add bias parameters and IA parameters
+                   }
+
+# this is varied
+free_params = fiducial_params.copy()
+
+fixed_params = {'m_nu': 0.06}
