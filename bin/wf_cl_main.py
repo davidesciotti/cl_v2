@@ -143,19 +143,21 @@ wig_PyCCL_obj = wf_cl_lib.wig_PyCCL(z_grid, 'with_galaxy_bias', cosmo='ISTF_fidu
 
 # note: I can also pass pk2d=None, which uses the default non-linear pk stored in cosmo. The difference is below 10%.
 warnings.warn('I should use pk=None because thats what is used in the derivatives!!!')
-cl_LL = wf_cl_lib.cl_PyCCL(wil_PyCCL_obj, wil_PyCCL_obj, ell_LL, zbins, is_auto_spectrum=True, pk2d=None)
-cl_GL = wf_cl_lib.cl_PyCCL(wig_PyCCL_obj, wil_PyCCL_obj, ell_GC, zbins, is_auto_spectrum=False, pk2d=None)
-cl_GG = wf_cl_lib.cl_PyCCL(wig_PyCCL_obj, wig_PyCCL_obj, ell_GC, zbins, is_auto_spectrum=True, pk2d=None)
+cl_LL_3D = wf_cl_lib.cl_PyCCL(wil_PyCCL_obj, wil_PyCCL_obj, ell_LL, zbins, is_auto_spectrum=True, pk2d=None)
+cl_GL_3D = wf_cl_lib.cl_PyCCL(wig_PyCCL_obj, wil_PyCCL_obj, ell_GC, zbins, is_auto_spectrum=False, pk2d=None)
+cl_GG_3D = wf_cl_lib.cl_PyCCL(wig_PyCCL_obj, wig_PyCCL_obj, ell_GC, zbins, is_auto_spectrum=True, pk2d=None)
 
-
-# TODO super easy: compute the covariance matrix here
-cl_dict_3D = {'LL': cl_LL, 'GL': cl_GL, 'GG': cl_GG}
+# * compute the covariance matrix
+cl_dict_3D = {
+    'cl_LL_3D': cl_LL_3D,
+    'cl_GL_3D': cl_GL_3D,
+    'cl_GG_3D': cl_GG_3D
+}
 ell_dict = {
     'ell_WL': ell_LL,
     'ell_GC': ell_GC,
     'ell_WA': ell_LL,  # ! wrong, but I don't use WA at the moment
 }
-
 delta_dict = {
     'delta_l_WL': delta_LL,
     'delta_l_GC': delta_GG,
@@ -165,6 +167,10 @@ delta_dict = {
 
 general_cfg = cfg_ISTF.general_cfg
 covariance_cfg = cfg_ISTF.covariance_cfg
+
+ind = mm.build_full_ind(covariance_cfg['triu_tril'], covariance_cfg['row_col_major'], zbins)
+covariance_cfg['ind'] = ind
+
 # a random one, again, it will not be used!
 Sijkl = np.load('/Users/davide/Documents/Lavoro/Programmi/SSC_restructured_v2/jobs/SPV3_magcut_zcut/output/'
                 'Flagship_2/sijkl/sijkl_WF-FS2_nz7002_zbinsED13_IATrue_ML245_ZL00_MS245_ZS00.npy')
