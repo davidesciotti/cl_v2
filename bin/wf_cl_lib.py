@@ -105,7 +105,7 @@ simps_z_step_size = 1e-4
 
 n_bar = np.genfromtxt(f"{project_path}/output/n_bar.txt")
 n_gal = ISTF.other_survey_specs['n_gal']
-lumin_ratio = np.genfromtxt(f"{project_path}/input/scaledmeanlum-E2Sa.dat")
+lumin_ratio_file = np.genfromtxt(f"{project_path}/input/scaledmeanlum-E2Sa.dat")
 
 warnings.warn('RECHECK Ox0 in cosmolib')
 warnings.warn('RECHECK z_mean')
@@ -337,8 +337,8 @@ def W_IA(z_grid):
 #     return result
 
 # test this
-lumin_ratio_z_values = lumin_ratio[:, 0]
-L_ratio = interp1d(lumin_ratio_z_values, lumin_ratio[:, 1], kind='linear')
+lumin_ratio_z_values = lumin_ratio_file[:, 0]
+L_ratio = interp1d(lumin_ratio_z_values, lumin_ratio_file[:, 1], kind='linear')
 
 
 # @njit
@@ -409,8 +409,11 @@ def wil_final(z_grid, which_wf):
 
 ###################### wig ###########################
 
-def b_of_z(zbin_idx):
-    return np.sqrt(1 + z_mean[zbin_idx])
+def b_of_z(z):
+    """simple analytical prescription for the linear galaxy bias:
+    b(z) = sqrt(1 + z)
+    """
+    return np.sqrt(1 + z)
 
 
 def stepwise_bias(z, bz_values):
@@ -427,12 +430,95 @@ def stepwise_bias(z, bz_values):
 
 
 def build_bias_zgrid(z_grid, zbins=zbins):
-    bz_values = np.asarray([b_of_z(zbin_idx) for zbin_idx in range(zbins)])
+    bz_values = np.asarray([b_of_z(z_mean_val) for z_mean_val in z_mean])
     bias_zgrid = np.array([stepwise_bias(z, bz_values) for z in z_grid])
     return bias_zgrid
 
 
+def build_galaxy_bias_2d_array(bias_values, z_values, zbins, z_grid, bias_model, plot_bias=False):
+    """
+    builds a 2d array of shape (len(z_grid), zbins) containing the bias values for each redshift bin. The bias values
+    can be given as a function of z, or as a constant value for each redshift bin. Each weight funcion will
+
+    :param bias_values: the values of the bias for each redshift bin
+    :param z_values: if a linear interpolation is needed, this is the array of z values for which the bias is given
+    :param zbins: number of redshift bins
+    :param z_grid: the redshift grid on which the bias is evaluated. in general, it does need to be very fine
+    :param bias_model: 'unbiased', 'linint', 'constant' or 'step-wise'
+    :param plot_bias: whether to plot the bias values for the different redshift bins
+    :return:
+    """
+
+    assert len(bias_values) == zbins, 'bias_values must be an array of length zbins'
+
+    if bias_model == 'unbiased':
+        bias_values = np.ones((len(z_grid), zbins))
+    elif bias_model == 'linint':
+        galaxy_bias_func = scipy.interpolate.interp1d(z_values, bias_values, kind='linear',
+                                                      fill_value=(bias_values[0], bias_values[-1]), bounds_error=False)
+        bias_values = galaxy_bias_func(z_grid)
+        bias_values = np.repeat(bias_values[:, np.newaxis], zbins, axis=1)
+    elif bias_model == 'constant':
+        # this is the only case in which the bias is different for each zbin
+        bias_values = np.repeat(bias_values[np.newaxis, :], len(z_grid), axis=0)
+    elif bias_model == 'step-wise':
+        bias_values = np.array([stepwise_bias(z, bias_values) for z in z_grid])
+        bias_values = np.repeat(bias_values[:, np.newaxis], zbins, axis=1)
+
+    if plot_bias:
+        plt.figure()
+        plt.title(bias_model)
+        for zbin_idx in range(zbins):
+            plt.plot(z_grid, bias_values[:, zbin_idx], label=f'zbin {zbin_idx}')
+        plt.legend()
+        plt.show()
+
+    return bias_values
+
+
+def build_IA_2d_array(lumin_ratio, z_grid_lumin_ratio, cosmo=None, A_IA=None, eta_IA=None, beta_IA=None, C_IA=None,
+                      growth_factor=None, omega_c=None, omega_b=None):
+    """
+    None is the default value, in which case we use ISTF fiducial values (or the cosmo object)
+    :param lumin_ratio:
+    :param z_grid_lumin_ratio:
+    :param cosmo:
+    :param A_IA:
+    :param C_IA:
+    :param eta_IA:
+    :param beta_IA:
+    :return:
+    """
+
+    if cosmo is None:
+        cosmo = instantiate_ISTFfid_PyCCL_cosmo_obj()
+    if A_IA is None:
+        A_IA = ISTF.IA_free['A_IA']
+    if eta_IA is None:
+        eta_IA = ISTF.IA_free['eta_IA']
+    if beta_IA is None:
+        beta_IA = ISTF.IA_free['beta_IA']
+    if C_IA is None:
+        C_IA = ISTF.IA_fixed['C_IA']
+    if growth_factor is None:
+        growth_factor = ccl.growth_factor(cosmo, a=1 / (1 + z_grid_lumin_ratio))
+    if omega_c is None:
+        omega_c = cosmo.cosmo.params.Omega_c
+    if omega_b is None:
+        omega_b = cosmo.cosmo.params.Omega_b
+
+    assert len(growth_factor) == len(z_grid_lumin_ratio), 'growth_factor must have the same length ' \
+                                                          'as z_grid_lumin_ratio (it must be computed in these ' \
+                                                          'redshifts!)'
+
+    FIAzNoCosmoNoGrowth = -1 * A_IA * C_IA * (1 + z_grid_lumin_ratio) ** eta_IA * lumin_ratio ** beta_IA
+    FIAz = FIAzNoCosmoNoGrowth * (omega_c + omega_b) / growth_factor
+
+    return FIAz
+
+
 def wig_IST(z_grid, which_wf, bias_zgrid='ISTF_fiducial'):
+
     if bias_zgrid == 'ISTF_fiducial':
         bias_zgrid = build_bias_zgrid(z_grid)
 
@@ -443,7 +529,7 @@ def wig_IST(z_grid, which_wf, bias_zgrid='ISTF_fiducial'):
     # result = (niz_analytical_arr_norm / n_bar[zbin_idx_array]).T * H0 * csmlib.E(z_grid) / c
 
     # result = (niz(zbin_idx_array, z_grid) / n_bar[zbin_idx_array]).T * H0 * csmlib.E(z_grid) / c
-    result = W_IA(z_grid)  # it's the same! unless the sources are differen
+    result = W_IA(z_grid)  # it's the same! unless the sources are different
 
     if which_wf == 'with_galaxy_bias':
         result = result * bias_zgrid
@@ -478,23 +564,27 @@ def instantiate_ISTFfid_PyCCL_cosmo_obj():
     return cosmo
 
 
-def wig_PyCCL(z_grid, which_wf, bias_zgrid=None, cosmo='ISTF_fiducial', return_PyCCL_object=False):
+def wig_PyCCL(z_grid, which_wf, bias_zgrid=None, cosmo=None, return_PyCCL_object=False):
     # instantiate cosmology
-    if cosmo == 'ISTF_fiducial':
+    if cosmo is None:
         cosmo = instantiate_ISTFfid_PyCCL_cosmo_obj()
-    elif cosmo is None:
-        raise ValueError('cosmo must be "ISTF_fiducial" or a PyCCL cosmology object')
 
     # build bias_zgrid
     if bias_zgrid is None:
-        bias_zgrid = build_bias_zgrid(z_grid)
+        assert zbins == 10, 'zbins must be 10 if bias_zgrid is not provided'
+        bias_values = np.asarray([b_of_z(z_mean_val) for z_mean_val in z_mean])
+        z_values = z_mean
+        bias_zgrid = build_galaxy_bias_2d_array(bias_values, z_values, zbins, z_grid, 'step-wise', True)
+        # bias_zgrid = build_bias_zgrid(z_grid)
+
 
     # redshift distribution
     niz_unnormalized = np.asarray([niz_unnormalized_analytical(z_grid, zbin_idx) for zbin_idx in range(zbins)])
-    niz_normalized_arr = normalize_niz_simps(niz_unnormalized, z_grid)
+    niz_normalized_arr = normalize_niz_simps(niz_unnormalized, z_grid).T
 
-    wig = [ccl.tracers.NumberCountsTracer(cosmo, has_rsd=False, dndz=(z_grid, niz_normalized_arr[zbin_idx, :]),
-                                          bias=(z_grid, bias_zgrid), mag_bias=None) for zbin_idx in range(zbins)]
+    wig = [ccl.tracers.NumberCountsTracer(cosmo, has_rsd=False, dndz=(z_grid, niz_normalized_arr[:, zbin_idx]),
+                                          bias=(z_grid, bias_zgrid[:, zbin_idx]), mag_bias=None)
+           for zbin_idx in range(zbins)]
 
     if return_PyCCL_object:
         return wig
@@ -514,26 +604,24 @@ def wig_PyCCL(z_grid, which_wf, bias_zgrid=None, cosmo='ISTF_fiducial', return_P
         raise ValueError('which_wf must be "with_galaxy_bias", "without_galaxy_bias" or "galaxy_bias_only"')
 
 
-def wil_PyCCL(z_grid, which_wf, cosmo='ISTF_fiducial', return_PyCCL_object=False):
+def wil_PyCCL(z_grid, which_wf, cosmo=None, return_PyCCL_object=False):
     # instantiate cosmology
-    if cosmo == 'ISTF_fiducial':
+    if cosmo is None:
         cosmo = instantiate_ISTFfid_PyCCL_cosmo_obj()
-    elif cosmo is None:
-        raise ValueError('cosmo must be "ISTF_fiducial" or a PyCCL cosmology object')
 
     # Intrinsic alignment
-    IAFILE = lumin_ratio
-    z_grid_IA = IAFILE[:, 0]
+    z_grid_IA = lumin_ratio_file[:, 0]
+    lumin_ratio = lumin_ratio_file[:, 1]
     growth_factor_PyCCL = ccl.growth_factor(cosmo, a=1 / (1 + z_grid_IA))  # validated against mine
-    FIAzNoCosmoNoGrowth = -1 * 1.72 * C_IA * (1 + z_grid_IA) ** eta_IA * IAFILE[:, 1] ** beta_IA
+    FIAzNoCosmoNoGrowth = -1 * A_IA * C_IA * (1 + z_grid_IA) ** eta_IA * lumin_ratio ** beta_IA
     FIAz = FIAzNoCosmoNoGrowth * (cosmo.cosmo.params.Omega_c + cosmo.cosmo.params.Omega_b) / growth_factor_PyCCL
 
     # redshift distribution
     niz_unnormalized = np.asarray([niz_unnormalized_analytical(z_grid, zbin_idx) for zbin_idx in range(zbins)])
-    niz_normalized_arr = normalize_niz_simps(niz_unnormalized, z_grid)
+    niz_normalized_arr = normalize_niz_simps(niz_unnormalized, z_grid).T
 
     # compute the tracer objects
-    wil = [ccl.tracers.WeakLensingTracer(cosmo, dndz=(z_grid, niz_normalized_arr[zbin_idx, :]),
+    wil = [ccl.tracers.WeakLensingTracer(cosmo, dndz=(z_grid, niz_normalized_arr[:, zbin_idx]),
                                          ia_bias=(z_grid_IA, FIAz), use_A_ia=False) for zbin_idx in range(zbins)]
 
     if return_PyCCL_object:
@@ -569,12 +657,10 @@ def wil_PyCCL(z_grid, which_wf, cosmo='ISTF_fiducial', return_PyCCL_object=False
 # ! for the moment, try to use the pk from array
 
 
-def cl_PyCCL(wf_A, wf_B, ell, zbins, is_auto_spectrum, pk2d, cosmo='ISTF_fiducial'):
+def cl_PyCCL(wf_A, wf_B, ell, zbins, is_auto_spectrum, pk2d, cosmo=None):
     # instantiate cosmology
-    if cosmo == 'ISTF_fiducial':
+    if cosmo is None:
         cosmo = instantiate_ISTFfid_PyCCL_cosmo_obj()
-    elif cosmo is None:
-        raise ValueError('cosmo must be "ISTF_fiducial" or a PyCCL cosmology object')
 
     nbl = len(ell)
 

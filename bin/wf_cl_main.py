@@ -1,3 +1,4 @@
+import gc
 import sys
 import time
 import warnings
@@ -12,6 +13,7 @@ project_path = Path.cwd().parent
 
 sys.path.append(f'{project_path}/config')
 import config_wlcl as cfg
+import config_ISTF as cfg_ISTF
 
 sys.path.append(f'{project_path.parent}/common_data/common_lib')
 import my_module as mm
@@ -25,9 +27,6 @@ sys.path.append(f'{project_path.parent}/SSC_restructured_v2/bin')
 import ell_values
 import covariance as cov_lib
 
-sys.path.append(f'{project_path.parent}/SSC_restructured_v2/jobs/ISTF/config')
-import config_ISTF_cl15gen as cfg_ISTF
-
 import wf_cl_lib
 
 script_start = time.perf_counter()
@@ -37,6 +36,9 @@ plt.rcParams.update(mpl_cfg.mpl_rcParams_dict)
 start_time = time.perf_counter()
 
 # TODO link with config file for stuff like ell_max, ecc
+
+general_cfg = cfg_ISTF.general_cfg
+covariance_cfg = cfg_ISTF.covariance_cfg
 
 zbins = cfg.zbins
 z_grid = cfg.z_grid
@@ -133,29 +135,53 @@ lk_arr = np.log(klist)  # it's the natural log, not log10
 Pk = ccl.Pk2D(a_arr=a_arr, lk_arr=lk_arr, pk_arr=Pklist, is_logp=False)
 
 
-# ! check the cls
-print('starting cl computation')
-ell_LL, delta_LL = ell_values.compute_ells(nbl=30, ell_min=10, ell_max=5000, recipe='ISTF')
-ell_GC, delta_GG = ell_values.compute_ells(nbl=30, ell_min=10, ell_max=3000, recipe='ISTF')
+z_values = ISTFfid.photoz_bins['z_mean']
+bias_values = np.asarray([wf_cl_lib.b_of_z(z) for z in z_values])
+bias_zgrid = wf_cl_lib.build_galaxy_bias_2d_array(bias_values, z_values, zbins, z_grid, 'constant')
 
-wil_PyCCL_obj = wf_cl_lib.wil_PyCCL(z_grid, 'with_IA', cosmo='ISTF_fiducial', return_PyCCL_object=True)
-wig_PyCCL_obj = wf_cl_lib.wig_PyCCL(z_grid, 'with_galaxy_bias', cosmo='ISTF_fiducial', return_PyCCL_object=True)
+wil_PyCCL_obj = wf_cl_lib.wil_PyCCL(z_grid, 'with_IA', cosmo=None, return_PyCCL_object=True)
+wig_PyCCL_obj = wf_cl_lib.wig_PyCCL(z_grid, 'with_galaxy_bias', bias_zgrid=bias_zgrid, cosmo=None,
+                                    return_PyCCL_object=True)
+
+
+# ! compute cls
+print('starting cl computation')
+nbl = general_cfg['nbl_WL']
+ell_min = general_cfg['ell_min']
+ell_max_WL = general_cfg['ell_max_WL']
+ell_max_GC = general_cfg['ell_max_GC']
+ell_LL, delta_LL = ell_values.compute_ells(nbl=nbl, ell_min=ell_min, ell_max=ell_max_WL, recipe='ISTF')
+ell_GG, delta_GG = ell_values.compute_ells(nbl=nbl, ell_min=ell_min, ell_max=ell_max_GC, recipe='ISTF')
 
 # note: I can also pass pk2d=None, which uses the default non-linear pk stored in cosmo. The difference is below 10%.
 warnings.warn('I should use pk=None because thats what is used in the derivatives!!!')
 cl_LL_3D = wf_cl_lib.cl_PyCCL(wil_PyCCL_obj, wil_PyCCL_obj, ell_LL, zbins, is_auto_spectrum=True, pk2d=None)
-cl_GL_3D = wf_cl_lib.cl_PyCCL(wig_PyCCL_obj, wil_PyCCL_obj, ell_GC, zbins, is_auto_spectrum=False, pk2d=None)
-cl_GG_3D = wf_cl_lib.cl_PyCCL(wig_PyCCL_obj, wig_PyCCL_obj, ell_GC, zbins, is_auto_spectrum=True, pk2d=None)
+cl_GL_3D = wf_cl_lib.cl_PyCCL(wig_PyCCL_obj, wil_PyCCL_obj, ell_GG, zbins, is_auto_spectrum=False, pk2d=None)
+cl_GG_3D = wf_cl_lib.cl_PyCCL(wig_PyCCL_obj, wig_PyCCL_obj, ell_GG, zbins, is_auto_spectrum=True, pk2d=None)
+
+np.save(f'{project_path}/output/cl/cl_LL_3D.npy', cl_LL_3D)
+np.save(f'{project_path}/output/cl/cl_GL_3D.npy', cl_GL_3D)
+np.save(f'{project_path}/output/cl/cl_GG_3D.npy', cl_GG_3D)
+np.save(f'{project_path}/output/cl/ell_GG.npy', ell_GG)
+np.save(f'{project_path}/output/cl/ell_LL.npy', ell_LL)
+
+cl_3x2pt_5D = np.zeros((nbl, 2, 2, zbins, zbins))
+cl_3x2pt_5D[:, 0, 0, :, :] = cl_LL_3D
+cl_3x2pt_5D[:, 0, 1, :, :] = cl_GL_3D.transpose(0, 2, 1)
+cl_3x2pt_5D[:, 1, 0, :, :] = cl_GL_3D
+cl_3x2pt_5D[:, 1, 1, :, :] = cl_GG_3D
 
 # * compute the covariance matrix
 cl_dict_3D = {
     'cl_LL_3D': cl_LL_3D,
     'cl_GL_3D': cl_GL_3D,
-    'cl_GG_3D': cl_GG_3D
+    'cl_GG_3D': cl_GG_3D,
+    'cl_WA_3D': cl_LL_3D,
+    'cl_3x2pt_5D': cl_3x2pt_5D,
 }
 ell_dict = {
     'ell_WL': ell_LL,
-    'ell_GC': ell_GC,
+    'ell_GC': ell_GG,
     'ell_WA': ell_LL,  # ! wrong, but I don't use WA at the moment
 }
 delta_dict = {
@@ -164,18 +190,53 @@ delta_dict = {
     'delta_l_WA': delta_LL,  # ! wrong, but I don't use WA at the moment
 }
 
+# ! a comparison of the cls is in order here!
+cl_dict_3D_vinc = mm.load_pickle(f'/Users/davide/Documents/Lavoro/Programmi/cl_v2/data/validation/cl_dict_3D.pickle')
+ell_dict_vinc = mm.load_pickle(f'/Users/davide/Documents/Lavoro/Programmi/cl_v2/data/validation/ell_dict.pickle')
+delta_dict_vinc = mm.load_pickle(f'/Users/davide/Documents/Lavoro/Programmi/cl_v2/data/validation/delta_dict.pickle')
 
-general_cfg = cfg_ISTF.general_cfg
-covariance_cfg = cfg_ISTF.covariance_cfg
+# ✅ ell values and deltas are the same.
+
+cl_LL_vinc = cl_dict_3D_vinc['cl_LL_3D']
+cl_GL_vinc = cl_dict_3D_vinc['cl_3x2pt_5D'][:, 1, 0, :, :]
+cl_GG_vinc = cl_dict_3D_vinc['cl_GG_3D']
+
+
+# np.testing.assert_allclose(cl_LL_3D, cl_LL_vinc, rtol=1e-1, atol=0)
+# np.testing.assert_allclose(cl_GL_3D, cl_GL_vinc, rtol=1e-1, atol=0)
+np.testing.assert_allclose(cl_GG_3D, cl_GG_vinc, rtol=1e-1, atol=0)
+
+ell_idx = 0
+cl_GG_3D = cl_GG_3D[ell_idx, ...]
+cl_GG_vinc = cl_GG_vinc[ell_idx, ...]
+mm.compare_arrays(cl_GG_3D, cl_GG_vinc, 'cl_GG_3D', 'cl_GG_vinc', plot_array=True, plot_diff=True, log_array=True,
+                  plot_diff_threshold=10)
+
+# ! unit test: have the outputs changed?
+output_path = f'{project_path}/output/cl'
+benchmarks_path = f'{project_path}/output/cl/benchmarks'
+mm.test_folder_content(output_path, benchmarks_path, 'npy')
+
+assert 1 > 2
 
 ind = mm.build_full_ind(covariance_cfg['triu_tril'], covariance_cfg['row_col_major'], zbins)
 covariance_cfg['ind'] = ind
 
 # a random one, again, it will not be used!
-Sijkl = np.load('/Users/davide/Documents/Lavoro/Programmi/SSC_restructured_v2/jobs/SPV3_magcut_zcut/output/'
-                'Flagship_2/sijkl/sijkl_WF-FS2_nz7002_zbinsED13_IATrue_ML245_ZL00_MS245_ZS00.npy')
+Sijkl = np.load('/Users/davide/Documents/Lavoro/Programmi/common_data/Sijkl/Sijkl_WFdavide_nz10000_IA_3may.npy')
 
-cov_dict = cov_lib.compute_cov(general_cfg, covariance_cfg, ell_dict, delta_dict, cl_dict_3D, rl_dict_3D=None, Sijkl=None)
+cov_dict = cov_lib.compute_cov(general_cfg, covariance_cfg, ell_dict, delta_dict, cl_dict_3D, rl_dict_3D=None,
+                               Sijkl=Sijkl)
+
+# time for a little comparison!
+cov_pyccl_LL = cov_dict['cov_WL_GO_2D']
+cov_dark_LL = np.load('/Users/davide/Documents/Lavoro/Programmi/SSC_restructured_v2/jobs/ISTF/output/cl15gen/covmat/'
+                      'PySSC/covmat_GO_WL_lmax5000_nbl30_zbinsEP10_2D.npz')['arr_0']
+del cov_dict
+gc.collect()
+
+mm.compare_arrays(cov_pyccl_LL, cov_dark_LL, 'cov_pyccl_LL', 'cov_dark_LL', plot_diff=True, plot_array=True,
+                  log_array=True, log_diff=True, plot_diff_threshold=5)
 
 assert 1 > 2
 
@@ -183,12 +244,10 @@ assert 1 > 2
 fiducial_params = cfg.fiducial_params
 free_params = cfg.free_params
 fixed_params = cfg.fixed_params
-dcl_LL, dcl_GL, dcl_GG = wf_cl_lib.compute_derivatives(fiducial_params, free_params, fixed_params, z_grid, zbins, ell_LL, ell_GC, Pk=None)
-
+dcl_LL, dcl_GL, dcl_GG = wf_cl_lib.compute_derivatives(fiducial_params, free_params, fixed_params, z_grid, zbins,
+                                                       ell_LL, ell_GC, Pk=None)
 
 # TODO output the wf densely sampled to produce covmat with PySSC
-
-
 
 
 print("the script took %.2f seconds to run" % (time.perf_counter() - script_start))

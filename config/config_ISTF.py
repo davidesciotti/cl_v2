@@ -76,7 +76,7 @@ covariance_cfg = {
 
     'cov_BNT_transform': cov_BNT_transform,
     'compute_covmat': True,
-    'compute_cov_6D': True,
+    'compute_cov_6D': False,
     'save_cov_2D': True,
     'save_cov_4D': False,
     'save_cov_6D': False,  # or 10D for the 3x2pt
@@ -85,7 +85,7 @@ covariance_cfg = {
     'save_2DCLOE': False,
     'cov_file_format': 'npz',
     'save_cov_dat': False,
-    'cov_folder': str(job_path) + f'/output/{cfg_name}/' + 'covmat/{SSC_code:s}',
+    # 'cov_folder': str(job_path) + f'/output/{cfg_name}/' + 'covmat/{SSC_code:s}',
     'cov_filename': 'covmat_{which_cov:s}_{probe:s}_lmax{ell_max:d}_nbl{nbl:d}_zbins{EP_or_ED:s}{zbins:02d}_{ndim:d}D',
     # 'cov_SSC_PyCCL_folder': f'{project_path.parent}/PyCCL_SSC/output/covmat',
     # 'cov_SSC_PyCCL_filename': 'cov_PyCCL_SSC_{probe:s}_nbl{nbl:d}_ellsISTF_ellmax{ell_max:d}_hm_recipeKiDS1000_6D.npy',
