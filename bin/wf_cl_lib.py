@@ -313,7 +313,12 @@ def wil_tilde_integrand_vec(z_prime, z):
     integration
     """
 
-    return niz(zbin_idx_array, z_prime).T * (1 - csmlib.r_tilde(z) / csmlib.r_tilde(z_prime))
+    # redshift distribution
+    niz_unnormalized = np.asarray([niz_unnormalized_analytical(z_prime, zbin_idx) for zbin_idx in range(zbins)])
+    niz_normalized_arr = normalize_niz_simps(niz_unnormalized, z_prime)
+
+    # return niz(zbin_idx_array, z_prime).T * (1 - csmlib.r_tilde(z) / csmlib.r_tilde(z_prime))  # old, with interpolator
+    return niz_normalized_arr * (1 - csmlib.r_tilde(z) / csmlib.r_tilde(z_prime))
 
 
 def wil_tilde_new(z):
@@ -336,9 +341,8 @@ def W_IA(z_grid):
     niz_unnormalized = np.asarray([niz_unnormalized_analytical(z_grid, zbin_idx) for zbin_idx in range(zbins)])
     niz_normalized_arr = normalize_niz_simps(niz_unnormalized, z_grid)
 
-    # return (H0 / c) * niz(zbin_idx_array, z_grid).T * csmlib.E(z_grid)  # ! with the interpolator
+    # return (H0 / c) * niz(zbin_idx_array, z_grid).T * csmlib.E(z_grid)  # ! old, with interpolator
     return (H0 / c) * niz_normalized_arr * csmlib.E(z_grid)
-
 
 
 # @njit
@@ -379,7 +383,6 @@ def wil_IA_IST(z_grid, wil_tilde_array, growth_factor_arr):
 
 
 def wil_final(z_grid, which_wf):
-
     # precompute growth factor
     growth_factor_arr = np.asarray([growth_factor(z) for z in z_grid])
 
