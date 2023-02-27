@@ -107,6 +107,9 @@ n_bar = np.genfromtxt(f"{project_path}/output/n_bar.txt")
 n_gal = ISTF.other_survey_specs['n_gal']
 lumin_ratio_file = np.genfromtxt(f"{project_path}/input/scaledmeanlum-E2Sa.dat")
 
+z_grid_lumin_ratio = lumin_ratio_file[:, 0]
+lumin_ratio_func = interp1d(z_grid_lumin_ratio, lumin_ratio_file[:, 1], kind='linear', fill_value='extrapolate')
+
 warnings.warn('RECHECK Ox0 in cosmolib')
 warnings.warn('RECHECK z_mean')
 warnings.warn('RECHECK lumin_ratio_extrapolated')
@@ -330,20 +333,9 @@ def W_IA(z_grid):
     return (H0 / c) * niz(zbin_idx_array, z_grid).T * csmlib.E(z_grid)
 
 
-# def L_ratio(z):
-#     lumin_ratio_interp1d = interp1d(lumin_ratio[:, 0], lumin_ratio[:, 1], kind='linear')
-#     result_array = lumin_ratio_interp1d(z)  # z is considered as an array
-#     result = result_array.item()  # otherwise it would be a 0d array
-#     return result
-
-# test this
-lumin_ratio_z_values = lumin_ratio_file[:, 0]
-L_ratio = interp1d(lumin_ratio_z_values, lumin_ratio_file[:, 1], kind='linear')
-
-
 # @njit
 def F_IA(z):
-    result = (1 + z) ** eta_IA * (L_ratio(z)) ** beta_IA
+    result = (1 + z) ** eta_IA * (lumin_ratio_func(z)) ** beta_IA
     return result
 
 
@@ -446,7 +438,7 @@ def build_galaxy_bias_2d_array(bias_values, z_values, zbins, z_grid, bias_model,
     :param z_grid: the redshift grid on which the bias is evaluated. in general, it does need to be very fine
     :param bias_model: 'unbiased', 'linint', 'constant' or 'step-wise'
     :param plot_bias: whether to plot the bias values for the different redshift bins
-    :return:
+    :return: bias_values: array of shape (len(z_grid), zbins) containing the bias values for each redshift bin.
     """
 
     assert len(bias_values) == zbins, 'bias_values must be an array of length zbins'
@@ -467,7 +459,7 @@ def build_galaxy_bias_2d_array(bias_values, z_values, zbins, z_grid, bias_model,
 
     if plot_bias:
         plt.figure()
-        plt.title(bias_model)
+        plt.title(f'bias_model {bias_model}')
         for zbin_idx in range(zbins):
             plt.plot(z_grid, bias_values[:, zbin_idx], label=f'zbin {zbin_idx}')
         plt.legend()
@@ -531,6 +523,8 @@ def wig_IST(z_grid, which_wf, bias_zgrid='ISTF_fiducial'):
     # result = (niz(zbin_idx_array, z_grid) / n_bar[zbin_idx_array]).T * H0 * csmlib.E(z_grid) / c
     result = W_IA(z_grid)  # it's the same! unless the sources are different
 
+    print('wig_IST.shape:', result.shape)
+
     if which_wf == 'with_galaxy_bias':
         result = result * bias_zgrid
         return result.T
@@ -564,26 +558,28 @@ def instantiate_ISTFfid_PyCCL_cosmo_obj():
     return cosmo
 
 
-def wig_PyCCL(z_grid, which_wf, bias_zgrid=None, cosmo=None, return_PyCCL_object=False):
+def wig_PyCCL(z_grid, which_wf, gal_bias_2d_array=None, bias_model='step-wise', cosmo=None, return_PyCCL_object=False):
     # instantiate cosmology
     if cosmo is None:
         cosmo = instantiate_ISTFfid_PyCCL_cosmo_obj()
 
     # build bias_zgrid
-    if bias_zgrid is None:
+    if gal_bias_2d_array is None:
         assert zbins == 10, 'zbins must be 10 if bias_zgrid is not provided'
         bias_values = np.asarray([b_of_z(z_mean_val) for z_mean_val in z_mean])
         z_values = z_mean
-        bias_zgrid = build_galaxy_bias_2d_array(bias_values, z_values, zbins, z_grid, 'step-wise', True)
+        gal_bias_2d_array = build_galaxy_bias_2d_array(bias_values, z_values, zbins, z_grid, bias_model)
         # bias_zgrid = build_bias_zgrid(z_grid)
-
 
     # redshift distribution
     niz_unnormalized = np.asarray([niz_unnormalized_analytical(z_grid, zbin_idx) for zbin_idx in range(zbins)])
     niz_normalized_arr = normalize_niz_simps(niz_unnormalized, z_grid).T
 
+    assert gal_bias_2d_array.shape == (len(z_grid), zbins), 'gal_bias_2d_array must have shape as (len(z_grid), zbins)'
+    assert niz_normalized_arr.shape == (len(z_grid), zbins), 'gal_bias_2d_array must have shape as (len(z_grid), zbins)'
+
     wig = [ccl.tracers.NumberCountsTracer(cosmo, has_rsd=False, dndz=(z_grid, niz_normalized_arr[:, zbin_idx]),
-                                          bias=(z_grid, bias_zgrid[:, zbin_idx]), mag_bias=None)
+                                          bias=(z_grid, gal_bias_2d_array[:, zbin_idx]), mag_bias=None)
            for zbin_idx in range(zbins)]
 
     if return_PyCCL_object:
@@ -594,12 +590,12 @@ def wig_PyCCL(z_grid, which_wf, bias_zgrid=None, cosmo=None, return_PyCCL_object
     wig_nobias_PyCCL_arr = np.asarray([wig[zbin_idx].get_kernel(chi) for zbin_idx in range(zbins)])
 
     if which_wf == 'with_galaxy_bias':
-        result = wig_nobias_PyCCL_arr[:, 0, :] * bias_zgrid
+        result = wig_nobias_PyCCL_arr[:, 0, :] * gal_bias_2d_array.T  # ! is the transposition the problem? Am I supposed to see the "kinks"?
         return result.T
     elif which_wf == 'without_galaxy_bias':
         return wig_nobias_PyCCL_arr[:, 0, :].T
     elif which_wf == 'galaxy_bias_only':
-        return bias_zgrid
+        return gal_bias_2d_array
     else:
         raise ValueError('which_wf must be "with_galaxy_bias", "without_galaxy_bias" or "galaxy_bias_only"')
 

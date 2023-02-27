@@ -42,51 +42,64 @@ covariance_cfg = cfg_ISTF.covariance_cfg
 
 zbins = cfg.zbins
 z_grid = cfg.z_grid
+zpoints = len(z_grid)
+WFs_output_folder = 'feb_2023'
 
-"""
 # my wf
 wig_IST = wf_cl_lib.wig_IST(z_grid, 'with_galaxy_bias')
-bias_zgrid = wf_cl_lib.wig_IST(z_grid, 'galaxy_bias_only')
+gal_bias_2d_array = wf_cl_lib.wig_IST(z_grid, 'galaxy_bias_only')
 
-wil_IA_IST = wf_cl_lib.wil_final(z_grid, which_wf='with_IA')
-wil_noIA_IST = wf_cl_lib.wil_final(z_grid, which_wf='without_IA')
-wil_IAonly_IST = wf_cl_lib.wil_final(z_grid, which_wf='IA_only')
+wil_IA_IST = wf_cl_lib.wil_final(z_grid, 'with_IA')
+wil_noIA_IST = wf_cl_lib.wil_final(z_grid, 'without_IA')
+wil_IAonly_IST = wf_cl_lib.wil_final(z_grid, 'IA_only')
 
 # wf from PyCCL
 wil_PyCCL = wf_cl_lib.wil_PyCCL(z_grid, 'with_IA')
 wig_PyCCL = wf_cl_lib.wig_PyCCL(z_grid, 'with_galaxy_bias')
 
-# set rainbow colormap over 10 values
+# set rainbow colormap over zbins values
 cmap = plt.get_cmap('rainbow')
 colors = [cmap(i) for i in np.linspace(0, 1, zbins)]
 
 # check wil
-plt.figure()
-for i in range(zbins):
-    plt.plot(z_grid, wil_PyCCL[:, i], label=f"wil tot i={i}", c=colors[i], ls='-')
-    plt.plot(z_grid, wil_IA_IST[:, i], label=f"wil tot i={i}", c=colors[i], ls='-')
-plt.legend()
-plt.grid()
-plt.show()
+# plt.figure()
+# for i in range(zbins):
+#     plt.plot(z_grid, wil_PyCCL[:, i], label=f"wil tot i={i}", c=colors[i], ls='-')
+#     plt.plot(z_grid, wil_IA_IST[:, i], label=f"wil tot i={i}", c=colors[i], ls='-')
+# plt.legend()
+# plt.grid()
+# plt.show()
 
 # check wig
+
+z_values = ISTFfid.photoz_bins['z_mean']
+bias_values = np.asarray([wf_cl_lib.b_of_z(z) for z in z_values])
+gal_bias_2d_array = wf_cl_lib.build_galaxy_bias_2d_array(bias_values, z_values, zbins, z_grid, 'step-wise')
+
 plt.figure()
 for i in range(zbins):
     plt.plot(z_grid, wig_IST[:, i], label=f"wig i={i}", c=colors[i], ls='-')
     plt.plot(z_grid, wig_PyCCL[:, i], label=f"wig i={i}", c=colors[i], ls='--')
+    plt.plot(z_grid, gal_bias_2d_array[:, i] / 1e3, label=f"gal_bias_2d_array i={i}", c=colors[i], ls='--')
 plt.legend()
 plt.grid()
 plt.show()
 
 # as well as their "sub-components":
 # save everything:
-np.save(f'{project_path}/output/WF/{WFs_output_folder}/z_array.npy', z_grid)
-np.save(f'{project_path}/output/WF/{WFs_output_folder}/bias_zgrid.npy', bias_zgrid)
-np.save(f'{project_path}/output/WF/{WFs_output_folder}/wil_IA_IST_nz{zpoints}.npy', wil_IA_IST)
-np.save(f'{project_path}/output/WF/{WFs_output_folder}/wil_noIA_IST_nz{zpoints}.npy', wil_noIA_IST)
-np.save(f'{project_path}/output/WF/{WFs_output_folder}/wil_IAonly_IST_nz{zpoints}.npy', wil_IAonly_IST)
-np.save(f'{project_path}/output/WF/{WFs_output_folder}/wig_IST_nz{zpoints}.npy', wig_IST)
-np.save(f'{project_path}/output/WF/{WFs_output_folder}/wig_nobias_IST_nz{zpoints}.npy', wig_IST.T / bias_zgrid)
+output_path = f'{project_path}/output/WF/{WFs_output_folder}'
+benchmarks_path = output_path + '/benchmarks'
+np.save(f'{output_path}/z_grid.npy', z_grid)
+np.save(f'{output_path}/gal_bias_2d_array.npy', gal_bias_2d_array)
+np.save(f'{output_path}/wil_IA_IST_nz{zpoints}.npy', wil_IA_IST)
+np.save(f'{output_path}/wil_noIA_IST_nz{zpoints}.npy', wil_noIA_IST)
+np.save(f'{output_path}/wil_IAonly_IST_nz{zpoints}.npy', wil_IAonly_IST)
+np.save(f'{output_path}/wig_IST_nz{zpoints}.npy', wig_IST)
+np.save(f'{output_path}/wig_nobias_IST_nz{zpoints}.npy', wig_IST / gal_bias_2d_array)
+
+mm.test_folder_content(output_path, benchmarks_path, 'npy')
+
+assert 1 > 2
 
 # ! VALIDATION against FS1
 # wig_fs1 = np.genfromtxt(
@@ -114,7 +127,7 @@ np.save(f'{project_path}/output/WF/{WFs_output_folder}/wig_nobias_IST_nz{zpoints
 #     plt.plot(z_arr, wil_IA_IST_arr[:, zbin_idx + 1], label='wil davide', ls='--')
 # plt.legend()
 # plt.grid()
-"""
+
 
 # Import fiducial P(k,z)
 PkFILE = np.genfromtxt(project_path / 'data/pkz-Fiducial.txt')
@@ -134,15 +147,13 @@ a_arr = 1 / (1 + zlist[::-1])
 lk_arr = np.log(klist)  # it's the natural log, not log10
 Pk = ccl.Pk2D(a_arr=a_arr, lk_arr=lk_arr, pk_arr=Pklist, is_logp=False)
 
-
 z_values = ISTFfid.photoz_bins['z_mean']
 bias_values = np.asarray([wf_cl_lib.b_of_z(z) for z in z_values])
-bias_zgrid = wf_cl_lib.build_galaxy_bias_2d_array(bias_values, z_values, zbins, z_grid, 'constant')
+gal_bias_2d_array = wf_cl_lib.build_galaxy_bias_2d_array(bias_values, z_values, zbins, z_grid, 'constant')
 
 wil_PyCCL_obj = wf_cl_lib.wil_PyCCL(z_grid, 'with_IA', cosmo=None, return_PyCCL_object=True)
-wig_PyCCL_obj = wf_cl_lib.wig_PyCCL(z_grid, 'with_galaxy_bias', bias_zgrid=bias_zgrid, cosmo=None,
+wig_PyCCL_obj = wf_cl_lib.wig_PyCCL(z_grid, 'with_galaxy_bias', gal_bias_2d_array=gal_bias_2d_array, cosmo=None,
                                     return_PyCCL_object=True)
-
 
 # ! compute cls
 print('starting cl computation')
@@ -200,7 +211,6 @@ delta_dict_vinc = mm.load_pickle(f'/Users/davide/Documents/Lavoro/Programmi/cl_v
 cl_LL_vinc = cl_dict_3D_vinc['cl_LL_3D']
 cl_GL_vinc = cl_dict_3D_vinc['cl_3x2pt_5D'][:, 1, 0, :, :]
 cl_GG_vinc = cl_dict_3D_vinc['cl_GG_3D']
-
 
 # np.testing.assert_allclose(cl_LL_3D, cl_LL_vinc, rtol=1e-1, atol=0)
 # np.testing.assert_allclose(cl_GL_3D, cl_GL_vinc, rtol=1e-1, atol=0)
