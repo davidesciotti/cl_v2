@@ -676,15 +676,28 @@ def wil_PyCCL(z_grid, which_wf, cosmo=None, return_PyCCL_object=False):
 
 ################################################# cl computation #######################################################
 
-
+# TODO these contain cosmology dependence...
 cosmo_classy = csmlib.cosmo_classy
-pk = csmlib.calculate_power(cosmo_classy, z_array, k_grid, use_h_units=use_h_units)
+cosmo_astropy = csmlib.cosmo_astropy
+pk = csmlib.calculate_power(cosmo_classy, k_grid, z_array, use_h_units=use_h_units)
 pk_interp_func = interp2d(k_grid, z_array, pk)
 
+
 # wrapper functions, just to shorten the names
-pk_wrap = partial(csmlib.calculate_power, cosmo_classy=cosmo_classy, use_h_units=use_h_units, Pk_kind='nonlinear',
-                  argument_type='scalar')
-kl_wrap = partial(csmlib.k_limber, use_h_units=use_h_units)
+# pk_wrap = partial(csmlib.calculate_power, cosmo_classy=cosmo_classy, use_h_units=use_h_units, Pk_kind='nonlinear',
+#                   argument_type='scalar')
+# kl_wrap = partial(csmlib.k_limber, use_h_units=use_h_units, cosmo_astropy=cosmo_astropy)
+
+
+def pk_wrap(k_ell, z, cosmo_classy=cosmo_classy, use_h_units=use_h_units, Pk_kind='nonlinear', argument_type='scalar'):
+    """just a wrapper function to set some args to default values"""
+    return csmlib.calculate_power(cosmo_classy, k_ell, z, use_h_units=use_h_units,
+                                  Pk_kind=Pk_kind, argument_type=argument_type)
+
+
+def kl_wrap(ell, z, use_h_units=use_h_units):
+    """another simple wrapper function, so as not to have to rewrite use_h_units=use_h_units"""
+    return csmlib.k_limber(ell, z, use_h_units=use_h_units)
 
 
 @type_enforced.Enforcer
@@ -718,12 +731,21 @@ def sum_cl_partial_integral(wf_A, wf_B, i: int, j: int, ell):
 
 ###### OLD BIAS ##################
 def cl_integrand(z, wf_A, wf_B, zi, zj, ell):
-    return ((wf_A(z, zi) * wf_B(z, zj)) / (csmlib.E(z) * csmlib.r(z) ** 2)) * pk_wrap(kl_wrap(ell, z), z)
+    return ((wf_A(z)[zi] * wf_B(z)[zj]) / (csmlib.E(z) * csmlib.r(z) ** 2)) * pk_wrap(kl_wrap(ell, z), z)
 
 
 def cl(wf_A, wf_B, ell, zi, zj):
     """ when used with LG or GG, this implements the "old bias"
     """
+    result = c / H0 * quad(cl_integrand, z_min, z_max_cl, args=(wf_A, wf_B, zi, zj, ell))[0]
+    # xxx maybe you can try with scipy.integrate.romberg?
+    return result
+
+
+def cl_simps(wf_A, wf_B, ell, zi, zj):
+    """ when used with LG or GG, this implements the "old bias"
+    """
+    # TODO implement this function
     result = c / H0 * quad(cl_integrand, z_min, z_max_cl, args=(wf_A, wf_B, zi, zj, ell))[0]
     # xxx maybe you can try with scipy.integrate.romberg?
     return result

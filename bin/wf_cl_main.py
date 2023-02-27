@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.integrate import simps
 import pyccl as ccl
+from scipy.interpolate import interp1d
 
 project_path = Path.cwd().parent
 
@@ -35,8 +36,8 @@ matplotlib.use('Qt5Agg')
 plt.rcParams.update(mpl_cfg.mpl_rcParams_dict)
 start_time = time.perf_counter()
 
-# TODO link with config file for stuff like ell_max, ecc
 
+# ! config stuff
 general_cfg = cfg_ISTF.general_cfg
 covariance_cfg = cfg_ISTF.covariance_cfg
 
@@ -45,12 +46,18 @@ z_grid = cfg.z_grid
 zpoints = len(z_grid)
 WFs_output_folder = 'feb_2023'
 
+# ! end config
+
 # my wf
 wig_IST = wf_cl_lib.wig_IST(z_grid, 'with_galaxy_bias')
 gal_bias_2d_array = wf_cl_lib.wig_IST(z_grid, 'without_galaxy_bias')
 wil_IA_IST = wf_cl_lib.wil_final(z_grid, 'with_IA')
-wil_noIA_IST = wf_cl_lib.wil_final(z_grid, 'without_IA')
-wil_IAonly_IST = wf_cl_lib.wil_final(z_grid, 'IA_only')
+# wil_noIA_IST = wf_cl_lib.wil_final(z_grid, 'without_IA')
+# wil_IAonly_IST = wf_cl_lib.wil_final(z_grid, 'IA_only')
+
+# interpolators for the cls
+wil_IA_IST_func = interp1d(z_grid, wil_IA_IST, axis=0, kind='linear')
+wig_IST_func = interp1d(z_grid, wig_IST, axis=0, kind='linear')
 
 # wf from PyCCL
 wil_PyCCL = wf_cl_lib.wil_PyCCL(z_grid, 'with_IA')
@@ -88,11 +95,10 @@ wf_output_path = f'{project_path}/output/WF/{WFs_output_folder}'
 wf_benchmarks_path = wf_output_path + '/benchmarks'
 np.save(f'{wf_output_path}/z_grid.npy', z_grid)
 np.save(f'{wf_output_path}/wil_IA_IST_nz{zpoints}.npy', wil_IA_IST)
-np.save(f'{wf_output_path}/wil_noIA_IST_nz{zpoints}.npy', wil_noIA_IST)
-np.save(f'{wf_output_path}/wil_IAonly_IST_nz{zpoints}.npy', wil_IAonly_IST)
+# np.save(f'{wf_output_path}/wil_noIA_IST_nz{zpoints}.npy', wil_noIA_IST)
+# np.save(f'{wf_output_path}/wil_IAonly_IST_nz{zpoints}.npy', wil_IAonly_IST)
 np.save(f'{wf_output_path}/wig_IST_nz{zpoints}.npy', wig_IST)
 np.save(f'{wf_output_path}/wig_nobias_IST_nz{zpoints}.npy', wig_IST / gal_bias_2d_array)
-
 
 # ! VALIDATION against FS1
 # wig_fs1 = np.genfromtxt(
@@ -167,9 +173,9 @@ cl_GG_3D = wf_cl_lib.cl_PyCCL(wig_PyCCL_obj, wig_PyCCL_obj, ell_GG, zbins, is_au
 # TODO partial integral? bias outside the kernels?
 print('computing cls with dark...')
 start_time = time.perf_counter()
-cl_LL_3D_dark = wf_cl_lib.get_cl_3D_array(wil_IA_IST, wil_IA_IST, ell_LL, is_auto_spectrum=True)
-cl_GL_3D_dark = wf_cl_lib.get_cl_3D_array(wig_IST, wil_IA_IST, ell_GG, is_auto_spectrum=False)
-cl_GG_3D_dark = wf_cl_lib.get_cl_3D_array(wig_IST, wig_IST, ell_GG, is_auto_spectrum=True)
+cl_LL_3D_dark = wf_cl_lib.get_cl_3D_array(wil_IA_IST_func, wil_IA_IST_func, ell_LL, is_auto_spectrum=True)
+cl_GL_3D_dark = wf_cl_lib.get_cl_3D_array(wig_IST_func, wil_IA_IST_func, ell_GG, is_auto_spectrum=False)
+cl_GG_3D_dark = wf_cl_lib.get_cl_3D_array(wig_IST_func, wig_IST_func, ell_GG, is_auto_spectrum=True)
 print(f'cl computation took {time.perf_counter() - start_time} seconds')
 
 cl_output_path = f'{project_path}/output/cl'
