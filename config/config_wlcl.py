@@ -68,6 +68,7 @@ ell_recipe = 'ISTF'
 z_max_cl = 2.9
 zsteps_cl = 500  # vincenzo uses 303
 units = "1/Mpc"
+use_h_units = False
 
 k_min = 10 ** (-5.442877)
 k_max = 30  # in Mpc**-1

@@ -47,10 +47,10 @@ WFs_output_folder = 'feb_2023'
 
 # my wf
 wig_IST = wf_cl_lib.wig_IST(z_grid, 'with_galaxy_bias')
-
+gal_bias_2d_array = wf_cl_lib.wig_IST(z_grid, 'without_galaxy_bias')
 wil_IA_IST = wf_cl_lib.wil_final(z_grid, 'with_IA')
-# wil_noIA_IST = wf_cl_lib.wil_final(z_grid, 'without_IA')
-# wil_IAonly_IST = wf_cl_lib.wil_final(z_grid, 'IA_only')
+wil_noIA_IST = wf_cl_lib.wil_final(z_grid, 'without_IA')
+wil_IAonly_IST = wf_cl_lib.wil_final(z_grid, 'IA_only')
 
 # wf from PyCCL
 wil_PyCCL = wf_cl_lib.wil_PyCCL(z_grid, 'with_IA')
@@ -61,18 +61,18 @@ cmap = plt.get_cmap('rainbow')
 colors = [cmap(i) for i in np.linspace(0, 1, zbins)]
 
 # check wil
-diff = mm.percent_diff(wil_IA_IST, wil_PyCCL)
-plt.figure()
-for i in range(zbins):
-    # plt.plot(z_grid, wil_PyCCL[:, i], label=f"wil tot i={i}", c=colors[i], ls='-')
-    # plt.plot(z_grid, wil_IA_IST[:, i], label=f"wil tot i={i}", c=colors[i], ls='-')
-    plt.plot(z_grid, diff[:, i], label=f"perc diff i={i}", c=colors[i], ls='-')
-plt.legend()
-plt.grid()
-plt.show()
+# diff = mm.percent_diff(wil_IA_IST, wil_PyCCL)
+# plt.figure()
+# for i in range(zbins):
+#     plt.plot(z_grid, wil_PyCCL[:, i], label=f"wil tot i={i}", c=colors[i], ls='-')
+#     plt.plot(z_grid, wil_IA_IST[:, i], label=f"wil tot i={i}", c=colors[i], ls='-')
+#     plt.plot(z_grid, diff[:, i], label=f"perc diff i={i}", c=colors[i], ls='-')
+# plt.legend()
+# plt.grid()
+# plt.show()
 
 # check wig
-diff = mm.percent_diff(wig_PyCCL, wig_IST)
+# diff = mm.percent_diff(wig_PyCCL, wig_IST)
 # plt.figure()
 # for i in range(zbins):
 #     plt.plot(z_grid, wig_IST[:, i], label=f"wig i={i}", c=colors[i], ls='-')
@@ -84,19 +84,15 @@ diff = mm.percent_diff(wig_PyCCL, wig_IST)
 
 # as well as their "sub-components":
 # save everything:
-output_path = f'{project_path}/output/WF/{WFs_output_folder}'
-benchmarks_path = output_path + '/benchmarks'
-np.save(f'{output_path}/z_grid.npy', z_grid)
-np.save(f'{output_path}/gal_bias_2d_array.npy', gal_bias_2d_array)
-np.save(f'{output_path}/wil_IA_IST_nz{zpoints}.npy', wil_IA_IST)
-np.save(f'{output_path}/wil_noIA_IST_nz{zpoints}.npy', wil_noIA_IST)
-np.save(f'{output_path}/wil_IAonly_IST_nz{zpoints}.npy', wil_IAonly_IST)
-np.save(f'{output_path}/wig_IST_nz{zpoints}.npy', wig_IST)
-np.save(f'{output_path}/wig_nobias_IST_nz{zpoints}.npy', wig_IST / gal_bias_2d_array)
+wf_output_path = f'{project_path}/output/WF/{WFs_output_folder}'
+wf_benchmarks_path = wf_output_path + '/benchmarks'
+np.save(f'{wf_output_path}/z_grid.npy', z_grid)
+np.save(f'{wf_output_path}/wil_IA_IST_nz{zpoints}.npy', wil_IA_IST)
+np.save(f'{wf_output_path}/wil_noIA_IST_nz{zpoints}.npy', wil_noIA_IST)
+np.save(f'{wf_output_path}/wil_IAonly_IST_nz{zpoints}.npy', wil_IAonly_IST)
+np.save(f'{wf_output_path}/wig_IST_nz{zpoints}.npy', wig_IST)
+np.save(f'{wf_output_path}/wig_nobias_IST_nz{zpoints}.npy', wig_IST / gal_bias_2d_array)
 
-mm.test_folder_content(output_path, benchmarks_path, 'npy')
-
-assert 1 > 2
 
 # ! VALIDATION against FS1
 # wig_fs1 = np.genfromtxt(
@@ -167,12 +163,54 @@ cl_LL_3D = wf_cl_lib.cl_PyCCL(wil_PyCCL_obj, wil_PyCCL_obj, ell_LL, zbins, is_au
 cl_GL_3D = wf_cl_lib.cl_PyCCL(wig_PyCCL_obj, wil_PyCCL_obj, ell_GG, zbins, is_auto_spectrum=False, pk2d=None)
 cl_GG_3D = wf_cl_lib.cl_PyCCL(wig_PyCCL_obj, wig_PyCCL_obj, ell_GG, zbins, is_auto_spectrum=True, pk2d=None)
 
-np.save(f'{project_path}/output/cl/cl_LL_3D.npy', cl_LL_3D)
-np.save(f'{project_path}/output/cl/cl_GL_3D.npy', cl_GL_3D)
-np.save(f'{project_path}/output/cl/cl_GG_3D.npy', cl_GG_3D)
-np.save(f'{project_path}/output/cl/ell_GG.npy', ell_GG)
-np.save(f'{project_path}/output/cl/ell_LL.npy', ell_LL)
+# TODO better investigate the pk here
+# TODO partial integral? bias outside the kernels?
+print('computing cls with dark...')
+start_time = time.perf_counter()
+cl_LL_3D_dark = wf_cl_lib.get_cl_3D_array(wil_IA_IST, wil_IA_IST, ell_LL, is_auto_spectrum=True)
+cl_GL_3D_dark = wf_cl_lib.get_cl_3D_array(wig_IST, wil_IA_IST, ell_GG, is_auto_spectrum=False)
+cl_GG_3D_dark = wf_cl_lib.get_cl_3D_array(wig_IST, wig_IST, ell_GG, is_auto_spectrum=True)
+print(f'cl computation took {time.perf_counter() - start_time} seconds')
 
+cl_output_path = f'{project_path}/output/cl'
+cl_benchmarks_path = f'{project_path}/output/cl/benchmarks'
+np.save(f'{cl_output_path}/cl_LL_3D.npy', cl_LL_3D)
+np.save(f'{cl_output_path}/cl_GL_3D.npy', cl_GL_3D)
+np.save(f'{cl_output_path}/cl_GG_3D.npy', cl_GG_3D)
+np.save(f'{cl_output_path}/cl_LL_3D_dark.npy', cl_LL_3D_dark)
+np.save(f'{cl_output_path}/cl_GL_3D_dark.npy', cl_GL_3D_dark)
+np.save(f'{cl_output_path}/cl_GG_3D_dark.npy', cl_GG_3D_dark)
+np.save(f'{cl_output_path}/ell_GG.npy', ell_GG)
+np.save(f'{cl_output_path}/ell_LL.npy', ell_LL)
+
+# ! a comparison of the cls is in order here!
+cl_dict_3D_vinc = mm.load_pickle(f'/Users/davide/Documents/Lavoro/Programmi/cl_v2/data/validation/cl_dict_3D.pickle')
+ell_dict_vinc = mm.load_pickle(f'/Users/davide/Documents/Lavoro/Programmi/cl_v2/data/validation/ell_dict.pickle')
+delta_dict_vinc = mm.load_pickle(f'/Users/davide/Documents/Lavoro/Programmi/cl_v2/data/validation/delta_dict.pickle')
+
+# ✅ ell values and deltas are the same.
+
+cl_LL_vinc = cl_dict_3D_vinc['cl_LL_3D']
+cl_GL_vinc = cl_dict_3D_vinc['cl_3x2pt_5D'][:, 1, 0, :, :]
+cl_GG_vinc = cl_dict_3D_vinc['cl_GG_3D']
+
+# np.testing.assert_allclose(cl_LL_3D, cl_LL_vinc, rtol=1e-1, atol=0)
+# np.testing.assert_allclose(cl_GL_3D, cl_GL_vinc, rtol=1e-1, atol=0)
+np.testing.assert_allclose(cl_GG_3D, cl_GG_vinc, rtol=1e-1, atol=0)
+
+ell_idx = 0
+cl_GG_3D = cl_GG_3D[ell_idx, ...]
+cl_GG_vinc = cl_GG_vinc[ell_idx, ...]
+mm.compare_arrays(cl_GG_3D, cl_GG_vinc, 'cl_GG_3D', 'cl_GG_vinc', plot_array=True, plot_diff=True, log_array=True,
+                  plot_diff_threshold=10)
+
+# ! unit test: have the outputs changed?
+mm.test_folder_content(cl_output_path, cl_benchmarks_path, 'npy')
+mm.test_folder_content(wf_output_path, wf_benchmarks_path, 'npy')
+
+assert 1 > 2
+
+# started to write code for computation of the covmat, but the cls are still in disagreement...
 cl_3x2pt_5D = np.zeros((nbl, 2, 2, zbins, zbins))
 cl_3x2pt_5D[:, 0, 0, :, :] = cl_LL_3D
 cl_3x2pt_5D[:, 0, 1, :, :] = cl_GL_3D.transpose(0, 2, 1)
@@ -197,32 +235,6 @@ delta_dict = {
     'delta_l_GC': delta_GG,
     'delta_l_WA': delta_LL,  # ! wrong, but I don't use WA at the moment
 }
-
-# ! a comparison of the cls is in order here!
-cl_dict_3D_vinc = mm.load_pickle(f'/Users/davide/Documents/Lavoro/Programmi/cl_v2/data/validation/cl_dict_3D.pickle')
-ell_dict_vinc = mm.load_pickle(f'/Users/davide/Documents/Lavoro/Programmi/cl_v2/data/validation/ell_dict.pickle')
-delta_dict_vinc = mm.load_pickle(f'/Users/davide/Documents/Lavoro/Programmi/cl_v2/data/validation/delta_dict.pickle')
-
-# ✅ ell values and deltas are the same.
-
-cl_LL_vinc = cl_dict_3D_vinc['cl_LL_3D']
-cl_GL_vinc = cl_dict_3D_vinc['cl_3x2pt_5D'][:, 1, 0, :, :]
-cl_GG_vinc = cl_dict_3D_vinc['cl_GG_3D']
-
-# np.testing.assert_allclose(cl_LL_3D, cl_LL_vinc, rtol=1e-1, atol=0)
-# np.testing.assert_allclose(cl_GL_3D, cl_GL_vinc, rtol=1e-1, atol=0)
-np.testing.assert_allclose(cl_GG_3D, cl_GG_vinc, rtol=1e-1, atol=0)
-
-ell_idx = 0
-cl_GG_3D = cl_GG_3D[ell_idx, ...]
-cl_GG_vinc = cl_GG_vinc[ell_idx, ...]
-mm.compare_arrays(cl_GG_3D, cl_GG_vinc, 'cl_GG_3D', 'cl_GG_vinc', plot_array=True, plot_diff=True, log_array=True,
-                  plot_diff_threshold=10)
-
-# ! unit test: have the outputs changed?
-output_path = f'{project_path}/output/cl'
-benchmarks_path = f'{project_path}/output/cl/benchmarks'
-mm.test_folder_content(output_path, benchmarks_path, 'npy')
 
 assert 1 > 2
 

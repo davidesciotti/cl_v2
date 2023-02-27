@@ -9,6 +9,7 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pyccl as ccl
+import type_enforced
 from numba import njit
 from scipy.integrate import quad, quad_vec, simpson, dblquad, simps
 from scipy.interpolate import interp1d, interp2d
@@ -83,7 +84,7 @@ z_plus = ISTF.photoz_bins['z_plus']
 z_0 = z_median / np.sqrt(2)
 z_mean = (z_plus + z_minus) / 2
 z_min = z_edges[0]
-z_max = 4
+z_max = cfg.z_max
 sqrt2 = np.sqrt(2)
 
 f_out = ISTF.photoz_pdf['f_out']
@@ -109,6 +110,11 @@ lumin_ratio_file = np.genfromtxt(f"{project_path}/input/scaledmeanlum-E2Sa.dat")
 
 z_grid_lumin_ratio = lumin_ratio_file[:, 0]
 lumin_ratio_func = interp1d(z_grid_lumin_ratio, lumin_ratio_file[:, 1], kind='linear', fill_value='extrapolate')
+
+z_max_cl = cfg.z_max_cl
+k_grid = np.logspace(np.log10(cfg.k_min), np.log10(cfg.k_max), cfg.k_points)
+z_array = np.linspace(z_min, z_max_cl, cfg.zsteps_cl)
+use_h_units = cfg.use_h_units
 
 warnings.warn('RECHECK Ox0 in cosmolib')
 warnings.warn('RECHECK z_mean')
@@ -611,8 +617,6 @@ def wig_PyCCL(z_grid, which_wf, gal_bias_2d_array=None, bias_model='step-wise', 
     chi = ccl.comoving_radial_distance(cosmo, a_arr)
     wig_nobias_PyCCL_arr = np.asarray([wig[zbin_idx].get_kernel(chi) for zbin_idx in range(zbins)])
 
-    print(wig_nobias_PyCCL_arr[:, 0, :].shape)
-
     if which_wf == 'with_galaxy_bias':
         result = wig_nobias_PyCCL_arr[:, 0, :] * gal_bias_2d_array.T
         return result.T
@@ -670,11 +674,78 @@ def wil_PyCCL(z_grid, which_wf, cosmo=None, return_PyCCL_object=False):
         raise ValueError('which_wf must be "with_IA", "without_IA" or "IA_only"')
 
 
-# insert z array values in the 0-th column
-# wil_IA_IST_arr = np.insert(wil_IA_IST_arr, 0, z_grid, axis=1)
-# wig_IST_arr = np.insert(wig_IST_arr, 0, z_grid, axis=1)
+################################################# cl computation #######################################################
 
-# ! for the moment, try to use the pk from array
+
+cosmo_classy = csmlib.cosmo_classy
+pk = csmlib.calculate_power(cosmo_classy, z_array, k_grid, use_h_units=use_h_units)
+pk_interp_func = interp2d(k_grid, z_array, pk)
+
+# wrapper functions, just to shorten the names
+pk_wrap = partial(csmlib.calculate_power, cosmo_classy=cosmo_classy, use_h_units=use_h_units, Pk_kind='nonlinear',
+                  argument_type='scalar')
+kl_wrap = partial(csmlib.k_limber, use_h_units=use_h_units)
+
+
+@type_enforced.Enforcer
+def K_ij(z, wf_A, wf_B, i: int, j: int):
+    return wf_A(z, j) * wf_B(z, i) / (csmlib.E(z) * csmlib.r(z) ** 2)
+
+
+def cl_partial_integrand(z, wf_A, wf_B, i: int, j: int, ell):
+    return K_ij(z, wf_A, wf_B, i, j) * pk_wrap(kl_wrap(ell, z), z)
+
+
+@type_enforced.Enforcer
+def cl_partial_integral(wf_A, wf_B, i: int, j: int, zbin: int, ell):
+    result = c / H0 * quad(cl_partial_integrand, z_minus[zbin], z_plus[zbin], args=(wf_A, wf_B, i, j, ell))[0]
+    return result
+
+
+print('THIS BIAS IS WRONG; MOREOVER, AM I NOT INCLUDING IT IN THE KERNELS?')
+
+
+# summing the partial integrals
+@type_enforced.Enforcer
+def sum_cl_partial_integral(wf_A, wf_B, i: int, j: int, ell):
+    warnings.warn('in this version the bias is not included in the kernels')
+    warnings.warn('understand the bias array')
+    result = 0
+    for zbin in range(zbins):
+        result += cl_partial_integral(wf_A, wf_B, i, j, zbin, ell) * bias_array[zbin]
+    return result
+
+
+###### OLD BIAS ##################
+def cl_integrand(z, wf_A, wf_B, zi, zj, ell):
+    return ((wf_A(z, zi) * wf_B(z, zj)) / (csmlib.E(z) * csmlib.r(z) ** 2)) * pk_wrap(kl_wrap(ell, z), z)
+
+
+def cl(wf_A, wf_B, ell, zi, zj):
+    """ when used with LG or GG, this implements the "old bias"
+    """
+    result = c / H0 * quad(cl_integrand, z_min, z_max_cl, args=(wf_A, wf_B, zi, zj, ell))[0]
+    # xxx maybe you can try with scipy.integrate.romberg?
+    return result
+
+
+def get_cl_3D_array(wf_A, wf_B, ell_values, is_auto_spectrum):
+    nbl = len(ell_values)
+    cl_3D = np.zeros((nbl, zbins, zbins))
+
+    if is_auto_spectrum:
+        for ell_idx, ell_val in enumerate(ell_values):
+            for zi in range(zbins):
+                for zj in range(zi, zbins):
+                    cl_3D[ell_idx, zi, zj] = cl(wf_A, wf_B, ell_val, zi, zj)
+        cl_3D = mm.symmetrize_2d_array(cl_3D)
+    else:
+        for ell_idx, ell_val in enumerate(ell_values):
+            for zi in range(zbins):
+                for zj in range(zbins):
+                    cl_3D[ell_idx, zi, zj] = cl(wf_A, wf_B, ell_val, zi, zj)
+
+    return cl_3D
 
 
 def cl_PyCCL(wf_A, wf_B, ell, zbins, is_auto_spectrum, pk2d, cosmo=None):
@@ -849,7 +920,7 @@ def compute_derivatives(fiducial_params, free_params, fixed_params, z_grid, zbin
             # # Create a Pk2D object
             # a_arr = 1 / (1 + zlist[::-1])
             # lk_arr = np.log(klist)  # it's the natural log, not log10
-            # Pk = ccl.Pk2D(a_arr=a_arr, lk_arr=lk_arr, pk_arr=Pklist, is_logp=False)
+            # pk = ccl.Pk2D(a_arr=a_arr, lk_arr=lk_arr, pk_arr=Pklist, is_logp=False)
 
             # the key specifies the parameter, but I still need an array of values - corresponding to the 15 variations over
             # the fiducial values
