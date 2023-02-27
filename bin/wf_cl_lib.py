@@ -421,7 +421,7 @@ def stepwise_bias(z, bz_values):
             return bz_values[zbins - 1]  # last value
 
 
-def build_bias_zgrid(z_grid, zbins=zbins):
+def build_bias_zgrid_deprecated(z_grid):
     bz_values = np.asarray([b_of_z(z_mean_val) for z_mean_val in z_mean])
     bias_zgrid = np.array([stepwise_bias(z, bz_values) for z in z_grid])
     return bias_zgrid
@@ -509,29 +509,40 @@ def build_IA_2d_array(lumin_ratio, z_grid_lumin_ratio, cosmo=None, A_IA=None, et
     return FIAz
 
 
-def wig_IST(z_grid, which_wf, bias_zgrid='ISTF_fiducial'):
+def wig_IST(z_grid, which_wf, zbins=10, gal_bias_2d_array=None, bias_model='step-wise'):
+    """
+    Computes the photometri Galaxy Clustering kernel, which is equal to the Intrinsic Alignment kernel if the sources
+    and lenses distributions are equal. The kernel is computed on a grid of redshifts z_grid, and is a 2d array of
+    shape (len(z_grid), zbins). The kernel is computed for each redshift bin, and the bias is assumed to be constant
+    :param bias_model:
+    :param z_grid:
+    :param which_wf:
+    :param zbins:
+    :param gal_bias_2d_array:
+    :return:
+    """
 
-    if bias_zgrid == 'ISTF_fiducial':
-        bias_zgrid = build_bias_zgrid(z_grid)
+    if gal_bias_2d_array is None:
+        z_values = ISTF.photoz_bins['z_mean']
+        bias_values = np.asarray([b_of_z(z) for z in z_values])
+        gal_bias_2d_array = build_galaxy_bias_2d_array(bias_values, z_values, zbins, z_grid, bias_model)
 
-    assert bias_zgrid.size == z_grid.size, 'bias_zgrid must have the same size as z_grid'
+    assert gal_bias_2d_array.shape == (len(z_grid), zbins), 'gal_bias_2d_array must have shape (len(z_grid), zbins)'
 
     # TODO There is probably room for optimization here, no need to use the callable for niz, just use the array...
     # something like this (but it's already normalized...)
     # result = (niz_analytical_arr_norm / n_bar[zbin_idx_array]).T * H0 * csmlib.E(z_grid) / c
 
     # result = (niz(zbin_idx_array, z_grid) / n_bar[zbin_idx_array]).T * H0 * csmlib.E(z_grid) / c
-    result = W_IA(z_grid)  # it's the same! unless the sources are different
-
-    print('wig_IST.shape:', result.shape)
+    result = W_IA(z_grid).T  # it's the same! unless the sources are different
 
     if which_wf == 'with_galaxy_bias':
-        result = result * bias_zgrid
-        return result.T
+        result *= gal_bias_2d_array
+        return result
     elif which_wf == 'without_galaxy_bias':
-        return result.T
+        return result
     elif which_wf == 'galaxy_bias_only':
-        return bias_zgrid
+        return gal_bias_2d_array
     else:
         raise ValueError('which_wf must be "with_galaxy_bias", "without_galaxy_bias" or "galaxy_bias_only"')
 
@@ -566,10 +577,9 @@ def wig_PyCCL(z_grid, which_wf, gal_bias_2d_array=None, bias_model='step-wise', 
     # build bias_zgrid
     if gal_bias_2d_array is None:
         assert zbins == 10, 'zbins must be 10 if bias_zgrid is not provided'
-        bias_values = np.asarray([b_of_z(z_mean_val) for z_mean_val in z_mean])
-        z_values = z_mean
+        z_values = ISTF.photoz_bins['z_mean']
+        bias_values = np.asarray([b_of_z(z) for z in z_values])
         gal_bias_2d_array = build_galaxy_bias_2d_array(bias_values, z_values, zbins, z_grid, bias_model)
-        # bias_zgrid = build_bias_zgrid(z_grid)
 
     # redshift distribution
     niz_unnormalized = np.asarray([niz_unnormalized_analytical(z_grid, zbin_idx) for zbin_idx in range(zbins)])
@@ -590,7 +600,8 @@ def wig_PyCCL(z_grid, which_wf, gal_bias_2d_array=None, bias_model='step-wise', 
     wig_nobias_PyCCL_arr = np.asarray([wig[zbin_idx].get_kernel(chi) for zbin_idx in range(zbins)])
 
     if which_wf == 'with_galaxy_bias':
-        result = wig_nobias_PyCCL_arr[:, 0, :] * gal_bias_2d_array.T  # ! is the transposition the problem? Am I supposed to see the "kinks"?
+        result = wig_nobias_PyCCL_arr[:, 0,
+                 :] * gal_bias_2d_array.T  # ! is the transposition the problem? Am I supposed to see the "kinks"?
         return result.T
     elif which_wf == 'without_galaxy_bias':
         return wig_nobias_PyCCL_arr[:, 0, :].T

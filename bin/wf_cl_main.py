@@ -72,15 +72,12 @@ colors = [cmap(i) for i in np.linspace(0, 1, zbins)]
 
 # check wig
 
-z_values = ISTFfid.photoz_bins['z_mean']
-bias_values = np.asarray([wf_cl_lib.b_of_z(z) for z in z_values])
-gal_bias_2d_array = wf_cl_lib.build_galaxy_bias_2d_array(bias_values, z_values, zbins, z_grid, 'step-wise')
+
 
 plt.figure()
 for i in range(zbins):
     plt.plot(z_grid, wig_IST[:, i], label=f"wig i={i}", c=colors[i], ls='-')
     plt.plot(z_grid, wig_PyCCL[:, i], label=f"wig i={i}", c=colors[i], ls='--')
-    plt.plot(z_grid, gal_bias_2d_array[:, i] / 1e3, label=f"gal_bias_2d_array i={i}", c=colors[i], ls='--')
 plt.legend()
 plt.grid()
 plt.show()
