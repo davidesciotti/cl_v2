@@ -312,6 +312,7 @@ def wil_tilde_integrand_vec(z_prime, z):
     vectorized version of wil_tilde_integrand, useful to fill up the computation of the integrand array for the simpson
     integration
     """
+
     return niz(zbin_idx_array, z_prime).T * (1 - csmlib.r_tilde(z) / csmlib.r_tilde(z_prime))
 
 
@@ -330,7 +331,14 @@ def wil_noIA_IST(z, wil_tilde_array):
 def W_IA(z_grid):
     warnings.warn("what about the normalization?")
     warnings.warn("different niz for sources and lenses?")
-    return (H0 / c) * niz(zbin_idx_array, z_grid).T * csmlib.E(z_grid)
+
+    # redshift distribution
+    niz_unnormalized = np.asarray([niz_unnormalized_analytical(z_grid, zbin_idx) for zbin_idx in range(zbins)])
+    niz_normalized_arr = normalize_niz_simps(niz_unnormalized, z_grid)
+
+    # return (H0 / c) * niz(zbin_idx_array, z_grid).T * csmlib.E(z_grid)  # ! with the interpolator
+    return (H0 / c) * niz_normalized_arr * csmlib.E(z_grid)
+
 
 
 # @njit
@@ -371,6 +379,7 @@ def wil_IA_IST(z_grid, wil_tilde_array, growth_factor_arr):
 
 
 def wil_final(z_grid, which_wf):
+
     # precompute growth factor
     growth_factor_arr = np.asarray([growth_factor(z) for z in z_grid])
 
@@ -599,9 +608,10 @@ def wig_PyCCL(z_grid, which_wf, gal_bias_2d_array=None, bias_model='step-wise', 
     chi = ccl.comoving_radial_distance(cosmo, a_arr)
     wig_nobias_PyCCL_arr = np.asarray([wig[zbin_idx].get_kernel(chi) for zbin_idx in range(zbins)])
 
+    print(wig_nobias_PyCCL_arr[:, 0, :].shape)
+
     if which_wf == 'with_galaxy_bias':
-        result = wig_nobias_PyCCL_arr[:, 0,
-                 :] * gal_bias_2d_array.T  # ! is the transposition the problem? Am I supposed to see the "kinks"?
+        result = wig_nobias_PyCCL_arr[:, 0, :] * gal_bias_2d_array.T
         return result.T
     elif which_wf == 'without_galaxy_bias':
         return wig_nobias_PyCCL_arr[:, 0, :].T

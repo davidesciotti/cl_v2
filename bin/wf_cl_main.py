@@ -47,11 +47,10 @@ WFs_output_folder = 'feb_2023'
 
 # my wf
 wig_IST = wf_cl_lib.wig_IST(z_grid, 'with_galaxy_bias')
-gal_bias_2d_array = wf_cl_lib.wig_IST(z_grid, 'galaxy_bias_only')
 
 wil_IA_IST = wf_cl_lib.wil_final(z_grid, 'with_IA')
-wil_noIA_IST = wf_cl_lib.wil_final(z_grid, 'without_IA')
-wil_IAonly_IST = wf_cl_lib.wil_final(z_grid, 'IA_only')
+# wil_noIA_IST = wf_cl_lib.wil_final(z_grid, 'without_IA')
+# wil_IAonly_IST = wf_cl_lib.wil_final(z_grid, 'IA_only')
 
 # wf from PyCCL
 wil_PyCCL = wf_cl_lib.wil_PyCCL(z_grid, 'with_IA')
@@ -62,25 +61,23 @@ cmap = plt.get_cmap('rainbow')
 colors = [cmap(i) for i in np.linspace(0, 1, zbins)]
 
 # check wil
-# plt.figure()
-# for i in range(zbins):
-#     plt.plot(z_grid, wil_PyCCL[:, i], label=f"wil tot i={i}", c=colors[i], ls='-')
-#     plt.plot(z_grid, wil_IA_IST[:, i], label=f"wil tot i={i}", c=colors[i], ls='-')
-# plt.legend()
-# plt.grid()
-# plt.show()
-
-# check wig
-
-
-
 plt.figure()
 for i in range(zbins):
-    plt.plot(z_grid, wig_IST[:, i], label=f"wig i={i}", c=colors[i], ls='-')
-    plt.plot(z_grid, wig_PyCCL[:, i], label=f"wig i={i}", c=colors[i], ls='--')
+    plt.plot(z_grid, wil_PyCCL[:, i], label=f"wil tot i={i}", c=colors[i], ls='-')
+    plt.plot(z_grid, wil_IA_IST[:, i], label=f"wil tot i={i}", c=colors[i], ls='-')
 plt.legend()
 plt.grid()
 plt.show()
+
+# check wig
+# plt.figure()
+# for i in range(zbins):
+#     plt.plot(z_grid, wig_IST[:, i], label=f"wig i={i}", c=colors[i], ls='-')
+#     plt.plot(z_grid, wig_PyCCL[:, i], label=f"wig i={i}", c=colors[i], ls='--')
+#     plt.plot(z_grid, (wig_PyCCL[:, i]/wig_IST[:, i] - 1)*100, label=f"perc diff i={i}", c=colors[i], ls='-')
+# plt.legend()
+# plt.grid()
+# plt.show()
 
 # as well as their "sub-components":
 # save everything:
