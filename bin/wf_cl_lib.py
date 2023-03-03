@@ -176,21 +176,17 @@ niz = interp2d(zbin_idx_array, z_values_from_nz, niz_import_cpy, kind="linear")
 # where n_of_z(z) is present both at the numerator and denominator!
 
 def n_i(z, i):
-    """with quad"""
+    """with quad. normalized"""
     integrand = lambda z_p, z: n_of_z(z) * pph(z_p, z)
     numerator = quad(integrand, z_minus[i], z_plus[i], args=z)[0]
     denominator = dblquad(integrand, z_min, z_max, z_minus[i], z_plus[i])[0]
     return numerator / denominator
 
 
-def quad_integrand(z_p, z, pph=pph):
-    return n_of_z(z) * pph(z_p, z)
-
-
 def niz_unnormalized_quad(z, zbin_idx, pph=pph):
     """with quad - 0.620401143 s, faster than quadvec..."""
     assert type(zbin_idx) == int, 'zbin_idx must be an integer'
-    return quad(quad_integrand, z_minus[zbin_idx], z_plus[zbin_idx], args=(z, pph))[0]
+    return n_of_z(z) * quad(pph, z_minus[zbin_idx], z_plus[zbin_idx], args=(z))[0]
 
 
 # SIMPSON WITH DIFFERENT POSSIBLE GRIDS:
@@ -679,7 +675,7 @@ def wil_PyCCL(z_grid, which_wf, cosmo=None, return_PyCCL_object=False):
 # TODO these contain cosmology dependence...
 cosmo_classy = csmlib.cosmo_classy
 cosmo_astropy = csmlib.cosmo_astropy
-pk = csmlib.calculate_power(cosmo_classy, k_grid, z_array, use_h_units=use_h_units)
+pk = csmlib.calculate_power(k_grid, z_array, cosmo_classy, use_h_units=use_h_units)
 pk_interp_func = interp2d(k_grid, z_array, pk)
 
 
@@ -691,7 +687,7 @@ pk_interp_func = interp2d(k_grid, z_array, pk)
 
 def pk_wrap(k_ell, z, cosmo_classy=cosmo_classy, use_h_units=use_h_units, Pk_kind='nonlinear', argument_type='scalar'):
     """just a wrapper function to set some args to default values"""
-    return csmlib.calculate_power(cosmo_classy, k_ell, z, use_h_units=use_h_units,
+    return csmlib.calculate_power(k_ell, z, cosmo_classy, use_h_units=use_h_units,
                                   Pk_kind=Pk_kind, argument_type=argument_type)
 
 
@@ -770,7 +766,7 @@ def get_cl_3D_array(wf_A, wf_B, ell_values, is_auto_spectrum):
     return cl_3D
 
 
-def cl_PyCCL(wf_A, wf_B, ell, zbins, is_auto_spectrum, pk2d, cosmo=None):
+def cl_PyCCL(wf_A, wf_B, ell, zbins, is_auto_spectrum, pk2d, cosmo=None, limber_integration_method='qag_quad'):
     # instantiate cosmology
     if cosmo is None:
         cosmo = instantiate_ISTFfid_PyCCL_cosmo_obj()
@@ -790,17 +786,19 @@ def cl_PyCCL(wf_A, wf_B, ell, zbins, is_auto_spectrum, pk2d, cosmo=None):
     #     pkfunc = partial(ccl.nonlin_matter_power, cosmo=cosmo)
     #     pk2d = ccl.Pk2D(pkfunc=pkfunc, a_arr=a_arr, lk_arr=lk_arr)
 
-    cl = np.zeros((nbl, zbins, zbins))
     if is_auto_spectrum:
+        cl_3D = np.zeros((nbl, zbins, zbins))
         for zi, zj in zip(np.triu_indices(zbins)[0], np.triu_indices(zbins)[1]):
-            cl[:, zi, zj] = ccl.angular_cl(cosmo, wf_A[zi], wf_B[zj], ell, p_of_k_a=pk2d)
+            cl_3D[:, zi, zj] = ccl.angular_cl(cosmo, wf_A[zi], wf_B[zj], ell, p_of_k_a=pk2d,
+                                              limber_integration_method=limber_integration_method)
         for ell in range(nbl):
-            cl[ell, :, :] = mm.symmetrize_2d_array(cl[ell, :, :])
+            cl_3D[ell, :, :] = mm.symmetrize_2d_array(cl_3D[ell, :, :])
     else:
-        cl = np.array([[ccl.angular_cl(cosmo, wf_A[zi], wf_B[zj], ell, p_of_k_a=pk2d)
-                        for zi in range(zbins)]
-                       for zj in range(zbins)]).transpose(2, 0, 1)
-    return cl
+        cl_3D = np.array([[ccl.angular_cl(cosmo, wf_A[zi], wf_B[zj], ell, p_of_k_a=pk2d,
+                                          limber_integration_method=limber_integration_method)
+                           for zi in range(zbins)]
+                          for zj in range(zbins)]).transpose(2, 0, 1)  # transpose to have ell as first axis
+    return cl_3D
 
 
 def stem(Cl_arr, variations_arr, zbins, nbl):
