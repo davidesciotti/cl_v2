@@ -36,7 +36,6 @@ matplotlib.use('Qt5Agg')
 plt.rcParams.update(mpl_cfg.mpl_rcParams_dict)
 start_time = time.perf_counter()
 
-
 # ! config stuff
 general_cfg = cfg_ISTF.general_cfg
 covariance_cfg = cfg_ISTF.covariance_cfg
@@ -154,7 +153,7 @@ wig_PyCCL_obj = wf_cl_lib.wig_PyCCL(z_grid, 'with_galaxy_bias', gal_bias_2d_arra
                                     return_PyCCL_object=True)
 
 # ! compute cls
-print('starting cl computation')
+print('computing cls with PyCCL...')
 nbl = general_cfg['nbl_WL']
 ell_min = general_cfg['ell_min']
 ell_max_WL = general_cfg['ell_max_WL']
@@ -170,12 +169,12 @@ cl_GG_3D = wf_cl_lib.cl_PyCCL(wig_PyCCL_obj, wig_PyCCL_obj, ell_GG, zbins, is_au
 
 # TODO better investigate the pk here
 # TODO partial integral? bias outside the kernels?
-print('computing cls with dark...')
+print('computing cls with Dark...')
 start_time = time.perf_counter()
 cl_LL_3D_dark = wf_cl_lib.get_cl_3D_array(wil_IA_IST_func, wil_IA_IST_func, ell_LL, is_auto_spectrum=True)
 cl_GL_3D_dark = wf_cl_lib.get_cl_3D_array(wig_IST_func, wil_IA_IST_func, ell_GG, is_auto_spectrum=False)
 cl_GG_3D_dark = wf_cl_lib.get_cl_3D_array(wig_IST_func, wig_IST_func, ell_GG, is_auto_spectrum=True)
-print(f'cl computation took {time.perf_counter() - start_time} seconds')
+print(f'cl computation took {time.perf_counter() - start_time} seconds with Dark')
 
 cl_output_path = f'{project_path}/output/cl'
 cl_benchmarks_path = f'{project_path}/output/cl/benchmarks'
