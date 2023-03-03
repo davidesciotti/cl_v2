@@ -15,7 +15,7 @@ project_path_parent = '/Users/davide/Documents/Lavoro/Programmi'
 
 
 zbins = 10
-z_min, z_max, zpoints = 0., 2.5, 1000
+z_min, z_max, zpoints = 0., 3, 1000
 z_grid = np.linspace(z_min, z_max, zpoints)
 
 
@@ -67,11 +67,13 @@ ell_recipe = 'ISTF'
 # xxx is z_max = 4 to be used everywhere?
 z_max_cl = 2.9
 zsteps_cl = 500  # vincenzo uses 303
+z_grid_simps_cl = np.linspace(0, z_max_cl, zsteps_cl)
+
 units = "1/Mpc"
 use_h_units = False
 
 k_min = 10 ** (-5.442877)
-k_max = 30  # in Mpc**-1
+k_max = 5  # in Mpc**-1
 k_points = 804
 
 whos_wf = 'marco'

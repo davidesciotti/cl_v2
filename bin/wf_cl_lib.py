@@ -113,7 +113,7 @@ lumin_ratio_func = interp1d(z_grid_lumin_ratio, lumin_ratio_file[:, 1], kind='li
 
 z_max_cl = cfg.z_max_cl
 k_grid = np.logspace(np.log10(cfg.k_min), np.log10(cfg.k_max), cfg.k_points)
-z_array = np.linspace(z_min, z_max_cl, cfg.zsteps_cl)
+z_grid = np.linspace(z_min, z_max_cl, cfg.zsteps_cl)
 use_h_units = cfg.use_h_units
 
 warnings.warn('RECHECK Ox0 in cosmolib')
@@ -670,30 +670,29 @@ def wil_PyCCL(z_grid, which_wf, cosmo=None, return_PyCCL_object=False):
         raise ValueError('which_wf must be "with_IA", "without_IA" or "IA_only"')
 
 
-################################################# cl computation #######################################################
+################################################# cl_quad computation #######################################################
 
 # TODO these contain cosmology dependence...
 cosmo_classy = csmlib.cosmo_classy
 cosmo_astropy = csmlib.cosmo_astropy
-pk = csmlib.calculate_power(k_grid, z_array, cosmo_classy, use_h_units=use_h_units)
-pk_interp_func = interp2d(k_grid, z_array, pk)
-
+pk = csmlib.calculate_power(k_grid, z_grid, cosmo_classy, use_h_units=use_h_units)
+pk_interp_func = interp2d(k_grid, z_grid, pk)
 
 # wrapper functions, just to shorten the names
-# pk_wrap = partial(csmlib.calculate_power, cosmo_classy=cosmo_classy, use_h_units=use_h_units, Pk_kind='nonlinear',
-#                   argument_type='scalar')
-# kl_wrap = partial(csmlib.k_limber, use_h_units=use_h_units, cosmo_astropy=cosmo_astropy)
+pk_nonlin_wrap = partial(csmlib.calculate_power, cosmo_classy=cosmo_classy, use_h_units=use_h_units,
+                         Pk_kind='nonlinear')
+kl_wrap = partial(csmlib.k_limber, use_h_units=use_h_units, cosmo_astropy=cosmo_astropy)
 
 
-def pk_wrap(k_ell, z, cosmo_classy=cosmo_classy, use_h_units=use_h_units, Pk_kind='nonlinear', argument_type='scalar'):
-    """just a wrapper function to set some args to default values"""
-    return csmlib.calculate_power(k_ell, z, cosmo_classy, use_h_units=use_h_units,
-                                  Pk_kind=Pk_kind, argument_type=argument_type)
-
-
-def kl_wrap(ell, z, use_h_units=use_h_units):
-    """another simple wrapper function, so as not to have to rewrite use_h_units=use_h_units"""
-    return csmlib.k_limber(ell, z, use_h_units=use_h_units)
+# these are no longer needed, since I can use partial
+# def pk_wrap(k_ell, z, cosmo_classy=cosmo_classy, use_h_units=use_h_units, Pk_kind='nonlinear'):
+#     """just a wrapper function to set some args to default values"""
+#     return csmlib.calculate_power(k_ell, z, cosmo_classy, use_h_units=use_h_units, Pk_kind=Pk_kind)
+#
+#
+# def kl_wrap(ell, z, use_h_units=use_h_units):
+#     """another simple wrapper function, so as not to have to rewrite use_h_units=use_h_units"""
+#     return csmlib.k_limber(ell, z, use_h_units=use_h_units)
 
 
 @type_enforced.Enforcer
@@ -702,7 +701,7 @@ def K_ij(z, wf_A, wf_B, i: int, j: int):
 
 
 def cl_partial_integrand(z, wf_A, wf_B, i: int, j: int, ell):
-    return K_ij(z, wf_A, wf_B, i, j) * pk_wrap(kl_wrap(ell, z), z)
+    return K_ij(z, wf_A, wf_B, i, j) * pk_nonlin_wrap(kl_wrap(ell, z), z)
 
 
 @type_enforced.Enforcer
@@ -727,10 +726,10 @@ def sum_cl_partial_integral(wf_A, wf_B, i: int, j: int, ell):
 
 ###### OLD BIAS ##################
 def cl_integrand(z, wf_A, wf_B, zi, zj, ell):
-    return ((wf_A(z)[zi] * wf_B(z)[zj]) / (csmlib.E(z) * csmlib.r(z) ** 2)) * pk_wrap(kl_wrap(ell, z), z)
+    return ((wf_A(z)[zi] * wf_B(z)[zj]) / (csmlib.E(z) * csmlib.r(z) ** 2)) * pk_nonlin_wrap(kl_wrap(ell, z), z)
 
 
-def cl(wf_A, wf_B, ell, zi, zj):
+def cl_quad(wf_A, wf_B, ell, zi, zj):
     """ when used with LG or GG, this implements the "old bias"
     """
     result = c / H0 * quad(cl_integrand, z_min, z_max_cl, args=(wf_A, wf_B, zi, zj, ell))[0]
@@ -741,10 +740,8 @@ def cl(wf_A, wf_B, ell, zi, zj):
 def cl_simps(wf_A, wf_B, ell, zi, zj):
     """ when used with LG or GG, this implements the "old bias"
     """
-    # TODO implement this function
-    result = c / H0 * quad(cl_integrand, z_min, z_max_cl, args=(wf_A, wf_B, zi, zj, ell))[0]
-    # xxx maybe you can try with scipy.integrate.romberg?
-    return result
+    integrand = [cl_integrand(z, wf_A, wf_B, zi, zj, ell) for z in z_grid]
+    return scipy.integrate.simps(integrand, z_grid)
 
 
 def get_cl_3D_array(wf_A, wf_B, ell_values, is_auto_spectrum):
@@ -755,13 +752,13 @@ def get_cl_3D_array(wf_A, wf_B, ell_values, is_auto_spectrum):
         for ell_idx, ell_val in enumerate(ell_values):
             for zi in range(zbins):
                 for zj in range(zi, zbins):
-                    cl_3D[ell_idx, zi, zj] = cl(wf_A, wf_B, ell_val, zi, zj)
+                    cl_3D[ell_idx, zi, zj] = cl_quad(wf_A, wf_B, ell_val, zi, zj)
         cl_3D = mm.symmetrize_2d_array(cl_3D)
     else:
         for ell_idx, ell_val in enumerate(ell_values):
             for zi in range(zbins):
                 for zj in range(zbins):
-                    cl_3D[ell_idx, zi, zj] = cl(wf_A, wf_B, ell_val, zi, zj)
+                    cl_3D[ell_idx, zi, zj] = cl_quad(wf_A, wf_B, ell_val, zi, zj)
 
     return cl_3D
 
@@ -867,7 +864,7 @@ def compute_derivatives(fiducial_params, free_params, fixed_params, z_grid, zbin
     # wa = 0, so the deviations are the percentages themselves
     variations['wa'] = percentages
 
-    # declare cl and dcl vectors
+    # declare cl_quad and dcl vectors
     cl_LL, cl_GL, cl_GG = {}, {}, {}
     dcl_LL, dcl_GL, dcl_GG = {}, {}, {}
 

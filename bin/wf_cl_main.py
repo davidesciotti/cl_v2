@@ -45,7 +45,6 @@ zbins = cfg.zbins
 z_grid = cfg.z_grid
 zpoints = len(z_grid)
 WFs_output_folder = 'feb_2023'
-
 # ! end config
 
 # my wf
