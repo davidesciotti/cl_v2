@@ -483,7 +483,7 @@ def build_galaxy_bias_2d_array(bias_values, z_values, zbins, z_grid, bias_model,
 
 
 def build_IA_2d_array(lumin_ratio, z_grid_lumin_ratio, cosmo=None, A_IA=None, eta_IA=None, beta_IA=None, C_IA=None,
-                      growth_factor=None, omega_c=None, omega_b=None):
+                      growth_factor=None, Omega_m=None, omega_b=None):
     """
     None is the default value, in which case we use ISTF fiducial values (or the cosmo object)
     :param lumin_ratio:
@@ -508,8 +508,8 @@ def build_IA_2d_array(lumin_ratio, z_grid_lumin_ratio, cosmo=None, A_IA=None, et
         C_IA = ISTF.IA_fixed['C_IA']
     if growth_factor is None:
         growth_factor = ccl.growth_factor(cosmo, a=1 / (1 + z_grid_lumin_ratio))
-    if omega_c is None:
-        omega_c = cosmo.cosmo.params.Omega_c
+    if Omega_m is None:
+        Omega_m = cosmo.cosmo.params.Omega_m
     if omega_b is None:
         omega_b = cosmo.cosmo.params.Omega_b
 
@@ -518,7 +518,7 @@ def build_IA_2d_array(lumin_ratio, z_grid_lumin_ratio, cosmo=None, A_IA=None, et
                                                           'redshifts!)'
 
     FIAzNoCosmoNoGrowth = -1 * A_IA * C_IA * (1 + z_grid_lumin_ratio) ** eta_IA * lumin_ratio ** beta_IA
-    FIAz = FIAzNoCosmoNoGrowth * (omega_c + omega_b) / growth_factor
+    FIAz = FIAzNoCosmoNoGrowth * Omega_m / growth_factor
 
     return FIAz
 
