@@ -482,8 +482,7 @@ def build_galaxy_bias_2d_array(bias_values, z_values, zbins, z_grid, bias_model,
     return bias_values
 
 
-def build_IA_array(z_grid_ia_bias, z_grid_lumin_ratio, lumin_ratio, cosmo=None, A_IA=None, eta_IA=None, beta_IA=None,
-                   C_IA=None,
+def build_IA_array(z_grid_lumin_ratio, lumin_ratio, cosmo=None, A_IA=None, eta_IA=None, beta_IA=None, C_IA=None,
                    growth_factor=None, Omega_m=None, output_FIAz=False):
     """
     None is the default value, in which case we use ISTF fiducial values (or the cosmo object)
@@ -515,17 +514,13 @@ def build_IA_array(z_grid_ia_bias, z_grid_lumin_ratio, lumin_ratio, cosmo=None, 
     assert len(growth_factor) == len(z_grid_lumin_ratio), 'growth_factor must have the same length ' \
                                                           'as z_grid_lumin_ratio (it must be computed in these ' \
                                                           'redshifts!)'
-    if not np.array_equal(z_grid_ia_bias, z_grid_lumin_ratio):
-        lumin_ratio_func = scipy.interpolate.interp1d(z_grid_lumin_ratio, lumin_ratio, kind='linear',
-                                                      fill_value='extrapolate')
-        lumin_ratio = lumin_ratio_func(z_grid_ia_bias)
 
-    FIA_of_z = (1 + z_grid_ia_bias) ** eta_IA * lumin_ratio ** beta_IA
+    FIA_of_z = (1 + z_grid_lumin_ratio) ** eta_IA * lumin_ratio ** beta_IA
     ia_bias = - A_IA * C_IA * Omega_m * FIA_of_z / growth_factor
 
     if output_FIAz:
-        warnings.warn('you can delete this (and the output_FIAz argument) once the validation id over')
-        return ia_bias, (1 + z_grid_ia_bias) ** eta_IA * lumin_ratio ** beta_IA
+        warnings.warn('you can delete this (and the output_FIAz argument) once the validation is over')
+        return ia_bias, FIA_of_z
 
     return ia_bias
 
@@ -642,8 +637,8 @@ def wil_PyCCL(z_grid, which_wf, cosmo=None, return_PyCCL_object=False):
     # Intrinsic alignment
     z_grid_lumin_ratio = lumin_ratio_file[:, 0]
     lumin_ratio = lumin_ratio_file[:, 1]
-    ia_bias = build_IA_array(z_grid_lumin_ratio, z_grid_lumin_ratio, lumin_ratio, cosmo=cosmo, A_IA=None, eta_IA=None,
-                             beta_IA=None, C_IA=None, growth_factor=None, Omega_m=None)
+    ia_bias = build_IA_array(z_grid_lumin_ratio, lumin_ratio, cosmo, A_IA=None, eta_IA=None, beta_IA=None, C_IA=None,
+                             growth_factor=None, Omega_m=None)
 
     # redshift distribution
     niz_unnormalized = np.asarray([niz_unnormalized_analytical(z_grid, zbin_idx) for zbin_idx in range(zbins)])
@@ -668,9 +663,13 @@ def wil_PyCCL(z_grid, which_wf, cosmo=None, return_PyCCL_object=False):
     if which_wf == 'with_IA':
         wil_noIA_PyCCL_arr = wil_PyCCL_arr[:, 0, :]
         wil_IAonly_PyCCL_arr = wil_PyCCL_arr[:, 1, :]
-        growth_factor_PyCCL = ccl.growth_factor(cosmo, a=1 / (1 + z_grid))
-        result = wil_noIA_PyCCL_arr - (A_IA * C_IA * cosmo.cosmo.parameters.Omega_m * F_IA(z_grid)) / \
-                 growth_factor_PyCCL * wil_IAonly_PyCCL_arr
+
+        lumin_ratio_func = interp1d(z_grid_lumin_ratio, lumin_ratio, kind='linear', fill_value='extrapolate')
+        lumin_ratio = lumin_ratio_func(z_grid)
+        ia_bias = build_IA_array(z_grid, lumin_ratio, cosmo, A_IA=None, eta_IA=None, beta_IA=None, C_IA=None,
+                                 growth_factor=None, Omega_m=None)
+        # ! note that the IA bias is negative, so there is a plus sign in the equation below
+        result = wil_noIA_PyCCL_arr + ia_bias * wil_IAonly_PyCCL_arr
         return result.T
     elif which_wf == 'without_IA':
         return wil_PyCCL_arr[:, 0, :].T
