@@ -441,7 +441,7 @@ def build_bias_zgrid_deprecated(z_grid):
     return bias_zgrid
 
 
-def build_galaxy_bias_2d_array(bias_values, z_values, zbins, z_grid, bias_model, plot_bias=False):
+def build_galaxy_bias_2d_arr(bias_values, z_values, zbins, z_grid, bias_model, plot_bias=False):
     """
     builds a 2d array of shape (len(z_grid), zbins) containing the bias values for each redshift bin. The bias values
     can be given as a function of z, or as a constant value for each redshift bin. Each weight funcion will
@@ -482,8 +482,8 @@ def build_galaxy_bias_2d_array(bias_values, z_values, zbins, z_grid, bias_model,
     return bias_values
 
 
-def build_IA_2d_array(lumin_ratio, z_grid_lumin_ratio, cosmo=None, A_IA=None, eta_IA=None, beta_IA=None, C_IA=None,
-                      growth_factor=None, Omega_m=None, omega_b=None):
+def build_IA_bias_1d_arr(z_grid_lumin_ratio, lumin_ratio, cosmo=None, A_IA=None, eta_IA=None, beta_IA=None, C_IA=None,
+                         growth_factor=None, Omega_m=None):
     """
     None is the default value, in which case we use ISTF fiducial values (or the cosmo object)
     :param lumin_ratio:
@@ -510,17 +510,16 @@ def build_IA_2d_array(lumin_ratio, z_grid_lumin_ratio, cosmo=None, A_IA=None, et
         growth_factor = ccl.growth_factor(cosmo, a=1 / (1 + z_grid_lumin_ratio))
     if Omega_m is None:
         Omega_m = cosmo.cosmo.params.Omega_m
-    if omega_b is None:
-        omega_b = cosmo.cosmo.params.Omega_b
 
     assert len(growth_factor) == len(z_grid_lumin_ratio), 'growth_factor must have the same length ' \
                                                           'as z_grid_lumin_ratio (it must be computed in these ' \
                                                           'redshifts!)'
 
-    FIAzNoCosmoNoGrowth = -1 * A_IA * C_IA * (1 + z_grid_lumin_ratio) ** eta_IA * lumin_ratio ** beta_IA
-    FIAz = FIAzNoCosmoNoGrowth * Omega_m / growth_factor
+    F_IA_of_z = (1 + z_grid_lumin_ratio) ** eta_IA * lumin_ratio ** beta_IA
+    ia_bias = -1 * A_IA * C_IA * Omega_m * F_IA_of_z / growth_factor
 
-    return FIAz
+    warnings.warn('IA bias is defined with the minus sign! should I change this?')
+    return ia_bias
 
 
 def wig_IST(z_grid, which_wf, zbins=10, gal_bias_2d_array=None, bias_model='step-wise'):
@@ -539,7 +538,7 @@ def wig_IST(z_grid, which_wf, zbins=10, gal_bias_2d_array=None, bias_model='step
     if gal_bias_2d_array is None:
         z_values = ISTF.photoz_bins['z_mean']
         bias_values = np.asarray([b_of_z(z) for z in z_values])
-        gal_bias_2d_array = build_galaxy_bias_2d_array(bias_values, z_values, zbins, z_grid, bias_model)
+        gal_bias_2d_array = build_galaxy_bias_2d_arr(bias_values, z_values, zbins, z_grid, bias_model)
 
     assert gal_bias_2d_array.shape == (len(z_grid), zbins), 'gal_bias_2d_array must have shape (len(z_grid), zbins)'
 
@@ -570,7 +569,8 @@ def wig_IST(z_grid, which_wf, zbins=10, gal_bias_2d_array=None, bias_model='step
 
 
 def instantiate_ISTFfid_PyCCL_cosmo_obj():
-    Om_c0 = ISTF.primary['Om_m0'] - ISTF.primary['Om_b0']
+
+    Om_c0 = ISTF.primary['Om_m0'] - ISTF.primary['Om_b0'] - ISTF.neutrino_params['Om_nu0']
 
     Omega_k = 1 - (Om_c0 + ISTF.primary['Om_b0']) - ISTF.extensions['Om_Lambda0']
     if np.abs(Omega_k) < 1e-10:
@@ -593,7 +593,7 @@ def wig_PyCCL(z_grid, which_wf, gal_bias_2d_array=None, bias_model='step-wise', 
         assert zbins == 10, 'zbins must be 10 if bias_zgrid is not provided'
         z_values = ISTF.photoz_bins['z_mean']
         bias_values = np.asarray([b_of_z(z) for z in z_values])
-        gal_bias_2d_array = build_galaxy_bias_2d_array(bias_values, z_values, zbins, z_grid, bias_model)
+        gal_bias_2d_array = build_galaxy_bias_2d_arr(bias_values, z_values, zbins, z_grid, bias_model)
 
     # redshift distribution
     niz_unnormalized = np.asarray([niz_unnormalized_analytical(z_grid, zbin_idx) for zbin_idx in range(zbins)])
@@ -625,6 +625,8 @@ def wig_PyCCL(z_grid, which_wf, gal_bias_2d_array=None, bias_model='step-wise', 
 
 
 def wil_PyCCL(z_grid, which_wf, cosmo=None, return_PyCCL_object=False):
+
+    warnings.warn('the IA part of this must be updated')
     # instantiate cosmology
     if cosmo is None:
         cosmo = instantiate_ISTFfid_PyCCL_cosmo_obj()
