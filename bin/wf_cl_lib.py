@@ -348,14 +348,14 @@ def W_IA(z_grid):
 
 
 # @njit
-def F_IA(z):
+def F_IA(z, eta_IA=eta_IA, beta_IA=beta_IA, lumin_ratio_func=lumin_ratio_func):
     result = (1 + z) ** eta_IA * (lumin_ratio_func(z)) ** beta_IA
     return result
 
 
 # use formula 23 of ISTF paper for Om(z)
 # @njit
-def Om(z):
+def Om(z, Om0=Om0):
     return Om0 * (1 + z) ** 3 / csmlib.E(z) ** 2
 
 
@@ -374,7 +374,7 @@ def growth_factor(z):
 #     return (A_IA * C_IA * Om0 * F_IA(z)) / growth_factor(z) * W_IA(z, i)
 
 # @njit
-def IA_term(z_grid, growth_factor_arr):
+def IA_term(z_grid, growth_factor_arr, A_IA=A_IA, C_IA=C_IA, Om0=Om0):
     """new version, vectorized"""
     return ((A_IA * C_IA * Om0 * F_IA(z_grid)) / growth_factor_arr * W_IA(z_grid)).T
 
@@ -482,8 +482,9 @@ def build_galaxy_bias_2d_array(bias_values, z_values, zbins, z_grid, bias_model,
     return bias_values
 
 
-def build_IA_2d_array(lumin_ratio, z_grid_lumin_ratio, cosmo=None, A_IA=None, eta_IA=None, beta_IA=None, C_IA=None,
-                      growth_factor=None, omega_c=None, omega_b=None):
+def build_IA_array(z_grid_ia_bias, z_grid_lumin_ratio, lumin_ratio, cosmo=None, A_IA=None, eta_IA=None, beta_IA=None,
+                   C_IA=None,
+                   growth_factor=None, Omega_m=None, output_FIAz=False):
     """
     None is the default value, in which case we use ISTF fiducial values (or the cosmo object)
     :param lumin_ratio:
@@ -508,19 +509,25 @@ def build_IA_2d_array(lumin_ratio, z_grid_lumin_ratio, cosmo=None, A_IA=None, et
         C_IA = ISTF.IA_fixed['C_IA']
     if growth_factor is None:
         growth_factor = ccl.growth_factor(cosmo, a=1 / (1 + z_grid_lumin_ratio))
-    if omega_c is None:
-        omega_c = cosmo.cosmo.params.Omega_c
-    if omega_b is None:
-        omega_b = cosmo.cosmo.params.Omega_b
+    if Omega_m is None:
+        Omega_m = cosmo.cosmo.params.Omega_m
 
     assert len(growth_factor) == len(z_grid_lumin_ratio), 'growth_factor must have the same length ' \
                                                           'as z_grid_lumin_ratio (it must be computed in these ' \
                                                           'redshifts!)'
+    if not np.array_equal(z_grid_ia_bias, z_grid_lumin_ratio):
+        lumin_ratio_func = scipy.interpolate.interp1d(z_grid_lumin_ratio, lumin_ratio, kind='linear',
+                                                      fill_value='extrapolate')
+        lumin_ratio = lumin_ratio_func(z_grid_ia_bias)
 
-    FIAzNoCosmoNoGrowth = -1 * A_IA * C_IA * (1 + z_grid_lumin_ratio) ** eta_IA * lumin_ratio ** beta_IA
-    FIAz = FIAzNoCosmoNoGrowth * (omega_c + omega_b) / growth_factor
+    FIA_of_z = (1 + z_grid_ia_bias) ** eta_IA * lumin_ratio ** beta_IA
+    ia_bias = - A_IA * C_IA * Omega_m * FIA_of_z / growth_factor
 
-    return FIAz
+    if output_FIAz:
+        warnings.warn('you can delete this (and the output_FIAz argument) once the validation id over')
+        return ia_bias, (1 + z_grid_ia_bias) ** eta_IA * lumin_ratio ** beta_IA
+
+    return ia_bias
 
 
 def wig_IST(z_grid, which_wf, zbins=10, gal_bias_2d_array=None, bias_model='step-wise'):
@@ -625,16 +632,18 @@ def wig_PyCCL(z_grid, which_wf, gal_bias_2d_array=None, bias_model='step-wise', 
 
 
 def wil_PyCCL(z_grid, which_wf, cosmo=None, return_PyCCL_object=False):
+    """ This is a wrapper function to call the kernels with PyCCL. arguments that default to None will be set to the
+    ISTF values."""
+
     # instantiate cosmology
     if cosmo is None:
         cosmo = instantiate_ISTFfid_PyCCL_cosmo_obj()
 
     # Intrinsic alignment
-    z_grid_IA = lumin_ratio_file[:, 0]
+    z_grid_lumin_ratio = lumin_ratio_file[:, 0]
     lumin_ratio = lumin_ratio_file[:, 1]
-    growth_factor_PyCCL = ccl.growth_factor(cosmo, a=1 / (1 + z_grid_IA))  # validated against mine
-    FIAzNoCosmoNoGrowth = -1 * A_IA * C_IA * (1 + z_grid_IA) ** eta_IA * lumin_ratio ** beta_IA
-    FIAz = FIAzNoCosmoNoGrowth * (cosmo.cosmo.params.Omega_c + cosmo.cosmo.params.Omega_b) / growth_factor_PyCCL
+    ia_bias = build_IA_array(z_grid_lumin_ratio, z_grid_lumin_ratio, lumin_ratio, cosmo=cosmo, A_IA=None, eta_IA=None,
+                             beta_IA=None, C_IA=None, growth_factor=None, Omega_m=None)
 
     # redshift distribution
     niz_unnormalized = np.asarray([niz_unnormalized_analytical(z_grid, zbin_idx) for zbin_idx in range(zbins)])
@@ -642,7 +651,8 @@ def wil_PyCCL(z_grid, which_wf, cosmo=None, return_PyCCL_object=False):
 
     # compute the tracer objects
     wil = [ccl.tracers.WeakLensingTracer(cosmo, dndz=(z_grid, niz_normalized_arr[:, zbin_idx]),
-                                         ia_bias=(z_grid_IA, FIAz), use_A_ia=False) for zbin_idx in range(zbins)]
+                                         ia_bias=(z_grid_lumin_ratio, ia_bias), use_A_ia=False)
+           for zbin_idx in range(zbins)]
 
     if return_PyCCL_object:
         return wil
@@ -655,12 +665,12 @@ def wil_PyCCL(z_grid, which_wf, cosmo=None, return_PyCCL_object=False):
 
     # these methods do not return ISTF kernels:
     # for wil, I have the 2 components w_gamma and w_IA separately, see below
-
     if which_wf == 'with_IA':
         wil_noIA_PyCCL_arr = wil_PyCCL_arr[:, 0, :]
         wil_IAonly_PyCCL_arr = wil_PyCCL_arr[:, 1, :]
         growth_factor_PyCCL = ccl.growth_factor(cosmo, a=1 / (1 + z_grid))
-        result = wil_noIA_PyCCL_arr - (A_IA * C_IA * Om0 * F_IA(z_grid)) / growth_factor_PyCCL * wil_IAonly_PyCCL_arr
+        result = wil_noIA_PyCCL_arr - (A_IA * C_IA * cosmo.cosmo.parameters.Omega_m * F_IA(z_grid)) / \
+                 growth_factor_PyCCL * wil_IAonly_PyCCL_arr
         return result.T
     elif which_wf == 'without_IA':
         return wil_PyCCL_arr[:, 0, :].T
