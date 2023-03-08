@@ -441,7 +441,7 @@ def build_bias_zgrid_deprecated(z_grid):
     return bias_zgrid
 
 
-def build_galaxy_bias_2d_array(bias_values, z_values, zbins, z_grid, bias_model, plot_bias=False):
+def build_galaxy_bias_2d_arr(bias_values, z_values, zbins, z_grid, bias_model, plot_bias=False):
     """
     builds a 2d array of shape (len(z_grid), zbins) containing the bias values for each redshift bin. The bias values
     can be given as a function of z, or as a constant value for each redshift bin. Each weight funcion will
@@ -482,8 +482,8 @@ def build_galaxy_bias_2d_array(bias_values, z_values, zbins, z_grid, bias_model,
     return bias_values
 
 
-def build_IA_array(z_grid_lumin_ratio, lumin_ratio, cosmo=None, A_IA=None, eta_IA=None, beta_IA=None, C_IA=None,
-                   growth_factor=None, Omega_m=None, output_FIAz=False):
+def build_IA_bias_1d_arr(z_grid_lumin_ratio, lumin_ratio, cosmo=None, A_IA=None, eta_IA=None, beta_IA=None, C_IA=None,
+                         growth_factor=None, Omega_m=None, output_F_IA_of_z=False):
     """
     None is the default value, in which case we use ISTF fiducial values (or the cosmo object)
     :param lumin_ratio:
@@ -515,12 +515,12 @@ def build_IA_array(z_grid_lumin_ratio, lumin_ratio, cosmo=None, A_IA=None, eta_I
                                                           'as z_grid_lumin_ratio (it must be computed in these ' \
                                                           'redshifts!)'
 
-    FIA_of_z = (1 + z_grid_lumin_ratio) ** eta_IA * lumin_ratio ** beta_IA
-    ia_bias = - A_IA * C_IA * Omega_m * FIA_of_z / growth_factor
+    F_IA_of_z = (1 + z_grid_lumin_ratio) ** eta_IA * lumin_ratio ** beta_IA
+    warnings.warn('IA bias is defined with the minus sign! should I change this?')
+    ia_bias = -1 * A_IA * C_IA * Omega_m * F_IA_of_z / growth_factor
 
-    if output_FIAz:
-        warnings.warn('you can delete this (and the output_FIAz argument) once the validation is over')
-        return ia_bias, FIA_of_z
+    if output_F_IA_of_z:
+        return (ia_bias, F_IA_of_z)
 
     return ia_bias
 
@@ -541,7 +541,7 @@ def wig_IST(z_grid, which_wf, zbins=10, gal_bias_2d_array=None, bias_model='step
     if gal_bias_2d_array is None:
         z_values = ISTF.photoz_bins['z_mean']
         bias_values = np.asarray([b_of_z(z) for z in z_values])
-        gal_bias_2d_array = build_galaxy_bias_2d_array(bias_values, z_values, zbins, z_grid, bias_model)
+        gal_bias_2d_array = build_galaxy_bias_2d_arr(bias_values, z_values, zbins, z_grid, bias_model)
 
     assert gal_bias_2d_array.shape == (len(z_grid), zbins), 'gal_bias_2d_array must have shape (len(z_grid), zbins)'
 
@@ -572,16 +572,19 @@ def wig_IST(z_grid, which_wf, zbins=10, gal_bias_2d_array=None, bias_model='step
 
 
 def instantiate_ISTFfid_PyCCL_cosmo_obj():
-    Om_c0 = ISTF.primary['Om_m0'] - ISTF.primary['Om_b0']
 
-    Omega_k = 1 - (Om_c0 + ISTF.primary['Om_b0']) - ISTF.extensions['Om_Lambda0']
-    if np.abs(Omega_k) < 1e-10:
+    Om_m0, Om_b0, Om_nu0 = ISTF.primary['Om_m0'], ISTF.primary['Om_b0'], ISTF.neutrino_params['Om_nu0']
+    Om_Lambda0 = ISTF.extensions['Om_Lambda0']
+    Om_c0 = Om_m0 - Om_b0 - Om_nu0
+
+    Om_k0 = 1 - Om_m0 - Om_Lambda0
+    if np.abs(Om_k0) < 1e-10:
         warnings.warn("Omega_k is very small but not exactly 0, probably due to numerical errors. Setting it to 0")
-        Omega_k = 0
+        Om_k0 = 0
 
     cosmo = ccl.Cosmology(Omega_c=Om_c0, Omega_b=ISTF.primary['Om_b0'], w0=ISTF.primary['w_0'],
                           wa=ISTF.primary['w_a'], h=ISTF.primary['h_0'], sigma8=ISTF.primary['sigma_8'],
-                          n_s=ISTF.primary['n_s'], m_nu=ISTF.extensions['m_nu'], Omega_k=Omega_k)
+                          n_s=ISTF.primary['n_s'], m_nu=ISTF.extensions['m_nu'], Omega_k=Om_k0)
     return cosmo
 
 
@@ -595,7 +598,7 @@ def wig_PyCCL(z_grid, which_wf, gal_bias_2d_array=None, bias_model='step-wise', 
         assert zbins == 10, 'zbins must be 10 if bias_zgrid is not provided'
         z_values = ISTF.photoz_bins['z_mean']
         bias_values = np.asarray([b_of_z(z) for z in z_values])
-        gal_bias_2d_array = build_galaxy_bias_2d_array(bias_values, z_values, zbins, z_grid, bias_model)
+        gal_bias_2d_array = build_galaxy_bias_2d_arr(bias_values, z_values, zbins, z_grid, bias_model)
 
     # redshift distribution
     niz_unnormalized = np.asarray([niz_unnormalized_analytical(z_grid, zbin_idx) for zbin_idx in range(zbins)])
@@ -630,6 +633,8 @@ def wil_PyCCL(z_grid, which_wf, cosmo=None, return_PyCCL_object=False):
     """ This is a wrapper function to call the kernels with PyCCL. arguments that default to None will be set to the
     ISTF values."""
 
+
+    warnings.warn('the IA part of this must be updated')
     # instantiate cosmology
     if cosmo is None:
         cosmo = instantiate_ISTFfid_PyCCL_cosmo_obj()
@@ -637,8 +642,9 @@ def wil_PyCCL(z_grid, which_wf, cosmo=None, return_PyCCL_object=False):
     # Intrinsic alignment
     z_grid_lumin_ratio = lumin_ratio_file[:, 0]
     lumin_ratio = lumin_ratio_file[:, 1]
-    ia_bias = build_IA_array(z_grid_lumin_ratio, lumin_ratio, cosmo, A_IA=None, eta_IA=None, beta_IA=None, C_IA=None,
-                             growth_factor=None, Omega_m=None)
+    growth_factor_PyCCL = ccl.growth_factor(cosmo, a=1 / (1 + z_grid_IA))  # validated against mine
+    FIAzNoCosmoNoGrowth = -1 * A_IA * C_IA * (1 + z_grid_IA) ** eta_IA * lumin_ratio ** beta_IA
+    FIAz = FIAzNoCosmoNoGrowth * (cosmo.cosmo.params.Omega_m) / growth_factor_PyCCL
 
     # redshift distribution
     niz_unnormalized = np.asarray([niz_unnormalized_analytical(z_grid, zbin_idx) for zbin_idx in range(zbins)])
@@ -663,13 +669,8 @@ def wil_PyCCL(z_grid, which_wf, cosmo=None, return_PyCCL_object=False):
     if which_wf == 'with_IA':
         wil_noIA_PyCCL_arr = wil_PyCCL_arr[:, 0, :]
         wil_IAonly_PyCCL_arr = wil_PyCCL_arr[:, 1, :]
-
-        lumin_ratio_func = interp1d(z_grid_lumin_ratio, lumin_ratio, kind='linear', fill_value='extrapolate')
-        lumin_ratio = lumin_ratio_func(z_grid)
-        ia_bias = build_IA_array(z_grid, lumin_ratio, cosmo, A_IA=None, eta_IA=None, beta_IA=None, C_IA=None,
-                                 growth_factor=None, Omega_m=None)
-        # ! note that the IA bias is negative, so there is a plus sign in the equation below
-        result = wil_noIA_PyCCL_arr + ia_bias * wil_IAonly_PyCCL_arr
+        growth_factor_PyCCL = ccl.growth_factor(cosmo, a=1 / (1 + z_grid))
+        result = wil_noIA_PyCCL_arr - (A_IA * C_IA * Om0 * F_IA(z_grid)) / growth_factor_PyCCL * wil_IAonly_PyCCL_arr
         return result.T
     elif which_wf == 'without_IA':
         return wil_PyCCL_arr[:, 0, :].T
@@ -917,7 +918,7 @@ def compute_derivatives(fiducial_params, free_params, fixed_params, z_grid, zbin
             # FIAzNoCosmoNoGrowth = - A_IA * CIA * (1 + IAFILE[:, 0]) ** eta_IA * IAFILE[:, 1] ** beta_IA
             #
             # FIAz = FIAzNoCosmoNoGrowth * \
-            #        (cosmo.cosmo.params.Omega_c + cosmo.cosmo.params.Omega_b) / \
+            #        (cosmo.cosmo.params.Omega_m) / \
             #        ccl.growth_factor(cosmo, 1 / (1 + IAFILE[:, 0]))
             #
             # wil = [

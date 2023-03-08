@@ -146,7 +146,7 @@ Pk = ccl.Pk2D(a_arr=a_arr, lk_arr=lk_arr, pk_arr=Pklist, is_logp=False)
 
 z_values = ISTFfid.photoz_bins['z_mean']
 bias_values = np.asarray([wf_cl_lib.b_of_z(z) for z in z_values])
-gal_bias_2d_array = wf_cl_lib.build_galaxy_bias_2d_array(bias_values, z_values, zbins, z_grid, 'constant')
+gal_bias_2d_array = wf_cl_lib.build_galaxy_bias_2d_arr(bias_values, z_values, zbins, z_grid, 'constant')
 
 wil_PyCCL_obj = wf_cl_lib.wil_PyCCL(z_grid, 'with_IA', cosmo=None, return_PyCCL_object=True)
 wig_PyCCL_obj = wf_cl_lib.wig_PyCCL(z_grid, 'with_galaxy_bias', gal_bias_2d_array=gal_bias_2d_array, cosmo=None,
