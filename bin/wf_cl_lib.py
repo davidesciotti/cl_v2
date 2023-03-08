@@ -915,7 +915,7 @@ def compute_derivatives(fiducial_params, free_params, fixed_params, z_grid, zbin
             # FIAzNoCosmoNoGrowth = - A_IA * CIA * (1 + IAFILE[:, 0]) ** eta_IA * IAFILE[:, 1] ** beta_IA
             #
             # FIAz = FIAzNoCosmoNoGrowth * \
-            #        (cosmo.cosmo.params.Omega_c + cosmo.cosmo.params.Omega_b) / \
+            #        (cosmo.cosmo.params.Omega_m) / \
             #        ccl.growth_factor(cosmo, 1 / (1 + IAFILE[:, 0]))
             #
             # wil = [
