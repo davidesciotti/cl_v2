@@ -34,7 +34,6 @@ script_start = time.perf_counter()
 
 matplotlib.use('Qt5Agg')
 plt.rcParams.update(mpl_cfg.mpl_rcParams_dict)
-start_time = time.perf_counter()
 
 # ! config stuff
 general_cfg = cfg_ISTF.general_cfg
@@ -131,7 +130,6 @@ PkFILE = np.genfromtxt(project_path / 'data/pkz-Fiducial.txt')
 
 # ! XXX are the units correct?
 # Populate vectors for z, k [1/Mpc], and P(k,z) [Mpc^3]
-
 cosmo = wf_cl_lib.instantiate_ISTFfid_PyCCL_cosmo_obj()
 zlist = np.unique(PkFILE[:, 0])
 k_points = int(len(PkFILE[:, 2]) / len(zlist))
@@ -163,18 +161,38 @@ ell_GG, delta_GG = ell_values.compute_ells(nbl=nbl, ell_min=ell_min, ell_max=ell
 
 # note: I can also pass pk2d=None, which uses the default non-linear pk stored in cosmo. The difference is below 10%.
 warnings.warn('I should use pk=None because thats what is used in the derivatives!!!')
-cl_LL_3D = wf_cl_lib.cl_PyCCL(wil_PyCCL_obj, wil_PyCCL_obj, ell_LL, zbins, is_auto_spectrum=True, pk2d=None)
-cl_GL_3D = wf_cl_lib.cl_PyCCL(wig_PyCCL_obj, wil_PyCCL_obj, ell_GG, zbins, is_auto_spectrum=False, pk2d=None)
-cl_GG_3D = wf_cl_lib.cl_PyCCL(wig_PyCCL_obj, wig_PyCCL_obj, ell_GG, zbins, is_auto_spectrum=True, pk2d=None)
+# cl_LL_3D = wf_cl_lib.cl_PyCCL(wil_PyCCL_obj, wil_PyCCL_obj, ell_LL, zbins, pk2d=None)
+cl_GL_3D = wf_cl_lib.cl_PyCCL(wig_PyCCL_obj, wil_PyCCL_obj, ell_GG, zbins, pk2d=None)
+# cl_GG_3D = wf_cl_lib.cl_PyCCL(wig_PyCCL_obj, wig_PyCCL_obj, ell_GG, zbins, pk2d=None)
 
 # TODO better investigate the pk here
 # TODO partial integral? bias outside the kernels?
 print('computing cls with Dark...')
 start_time = time.perf_counter()
-cl_LL_3D_dark = wf_cl_lib.get_cl_3D_array(wil_IA_IST_func, wil_IA_IST_func, ell_LL, is_auto_spectrum=True)
-cl_GL_3D_dark = wf_cl_lib.get_cl_3D_array(wig_IST_func, wil_IA_IST_func, ell_GG, is_auto_spectrum=False)
-cl_GG_3D_dark = wf_cl_lib.get_cl_3D_array(wig_IST_func, wig_IST_func, ell_GG, is_auto_spectrum=True)
+cl_LL_3D_dark = wf_cl_lib.get_cl_3D_array(wil_IA_IST_func, wil_IA_IST_func, ell_LL)
+cl_GL_3D_dark = wf_cl_lib.get_cl_3D_array(wig_IST_func, wil_IA_IST_func, ell_GG)
+cl_GG_3D_dark = wf_cl_lib.get_cl_3D_array(wig_IST_func, wig_IST_func, ell_GG)
 print(f'cl computation took {time.perf_counter() - start_time} seconds with Dark')
+
+mm.compare_arrays(cl_GL_3D_dark[0, :, :], cl_GL_3D[0, :, :], 'cl_GL_3D_dark', 'cl_GL_3D',
+                  plot_array=True, log_array=True,
+                  plot_diff=True, log_diff=False)
+
+
+# set colormap for linspace (zbins)
+cmap = plt.cm.get_cmap('viridis')
+colors = cmap(np.linspace(0, 1, zbins))
+
+plt.figure()
+for zi in range(zbins):
+    plt.loglog(ell_GG, np.abs(cl_GL_3D_dark[:, zi, zi]), label=f'dark {zi}', c=colors[zi])
+    plt.loglog(ell_GG, np.abs(cl_GL_3D[:, zi, zi]), label=f'PyCCL {zi}', ls='--', c=colors[zi])
+plt.legend()
+plt.grid()
+
+
+
+assert False
 
 cl_output_path = f'{project_path}/output/cl'
 cl_benchmarks_path = f'{project_path}/output/cl/benchmarks'
@@ -261,7 +279,7 @@ gc.collect()
 mm.compare_arrays(cov_pyccl_LL, cov_dark_LL, 'cov_pyccl_LL', 'cov_dark_LL', plot_diff=True, plot_array=True,
                   log_array=True, log_diff=True, plot_diff_threshold=5)
 
-assert 1 > 2
+assert False
 
 # ! new code: compute the derivatives
 fiducial_params = cfg.fiducial_params

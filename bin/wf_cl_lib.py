@@ -1,3 +1,4 @@
+import pdb
 import warnings
 
 import scipy
@@ -465,7 +466,7 @@ def build_galaxy_bias_2d_arr(bias_values, z_values, zbins, z_grid, bias_model, p
         bias_values = galaxy_bias_func(z_grid)
         bias_values = np.repeat(bias_values[:, np.newaxis], zbins, axis=1)
     elif bias_model == 'constant':
-        # this is the only case in which the bias is different for each zbin
+        # this is the only case in which the bias is different for each zbin; I repeat len(z_grid) times
         bias_values = np.repeat(bias_values[np.newaxis, :], len(z_grid), axis=0)
     elif bias_model == 'step-wise':
         bias_values = np.array([stepwise_bias(z, bias_values) for z in z_grid])
@@ -572,7 +573,6 @@ def wig_IST(z_grid, which_wf, zbins=10, gal_bias_2d_array=None, bias_model='step
 
 
 def instantiate_ISTFfid_PyCCL_cosmo_obj():
-
     Om_m0, Om_b0, Om_nu0 = ISTF.primary['Om_m0'], ISTF.primary['Om_b0'], ISTF.neutrino_params['Om_nu0']
     Om_Lambda0 = ISTF.extensions['Om_Lambda0']
     Om_c0 = Om_m0 - Om_b0 - Om_nu0
@@ -633,7 +633,6 @@ def wil_PyCCL(z_grid, which_wf, cosmo=None, return_PyCCL_object=False):
     """ This is a wrapper function to call the kernels with PyCCL. arguments that default to None will be set to the
     ISTF values."""
 
-
     warnings.warn('the IA part of this must be updated')
     # instantiate cosmology
     if cosmo is None:
@@ -642,9 +641,10 @@ def wil_PyCCL(z_grid, which_wf, cosmo=None, return_PyCCL_object=False):
     # Intrinsic alignment
     z_grid_lumin_ratio = lumin_ratio_file[:, 0]
     lumin_ratio = lumin_ratio_file[:, 1]
-    growth_factor_PyCCL = ccl.growth_factor(cosmo, a=1 / (1 + z_grid_IA))  # validated against mine
-    FIAzNoCosmoNoGrowth = -1 * A_IA * C_IA * (1 + z_grid_IA) ** eta_IA * lumin_ratio ** beta_IA
-    FIAz = FIAzNoCosmoNoGrowth * (cosmo.cosmo.params.Omega_m) / growth_factor_PyCCL
+
+    growth_factor_PyCCL = ccl.growth_factor(cosmo, a=1 / (1 + z_grid_lumin_ratio))  # validated against mine
+    FIAzNoCosmoNoGrowth = -1 * A_IA * C_IA * (1 + z_grid_lumin_ratio) ** eta_IA * lumin_ratio ** beta_IA
+    FIAz = FIAzNoCosmoNoGrowth * cosmo.cosmo.params.Omega_m / growth_factor_PyCCL
 
     # redshift distribution
     niz_unnormalized = np.asarray([niz_unnormalized_analytical(z_grid, zbin_idx) for zbin_idx in range(zbins)])
@@ -652,7 +652,7 @@ def wil_PyCCL(z_grid, which_wf, cosmo=None, return_PyCCL_object=False):
 
     # compute the tracer objects
     wil = [ccl.tracers.WeakLensingTracer(cosmo, dndz=(z_grid, niz_normalized_arr[:, zbin_idx]),
-                                         ia_bias=(z_grid_lumin_ratio, ia_bias), use_A_ia=False)
+                                         ia_bias=(z_grid_lumin_ratio, FIAz), use_A_ia=False)
            for zbin_idx in range(zbins)]
 
     if return_PyCCL_object:
@@ -698,8 +698,8 @@ kl_wrap = partial(csmlib.k_limber, use_h_units=use_h_units, cosmo_astropy=cosmo_
 # def pk_wrap(k_ell, z, cosmo_classy=cosmo_classy, use_h_units=use_h_units, Pk_kind='nonlinear'):
 #     """just a wrapper function to set some args to default values"""
 #     return csmlib.calculate_power(k_ell, z, cosmo_classy, use_h_units=use_h_units, Pk_kind=Pk_kind)
-#
-#
+
+
 # def kl_wrap(ell, z, use_h_units=use_h_units):
 #     """another simple wrapper function, so as not to have to rewrite use_h_units=use_h_units"""
 #     return csmlib.k_limber(ell, z, use_h_units=use_h_units)
@@ -754,29 +754,39 @@ def cl_simps(wf_A, wf_B, ell, zi, zj):
     return scipy.integrate.simps(integrand, z_grid)
 
 
-def get_cl_3D_array(wf_A, wf_B, ell_values, is_auto_spectrum):
+def get_cl_3D_array(wf_A, wf_B, ell_values):
+    # TODO optimize this with triu and/or list comprehensions
     nbl = len(ell_values)
     cl_3D = np.zeros((nbl, zbins, zbins))
 
+    is_auto_spectrum = False
+    if wf_A == wf_B:
+        is_auto_spectrum = True
+
     if is_auto_spectrum:
         for ell_idx, ell_val in enumerate(ell_values):
-            for zi in range(zbins):
-                for zj in range(zi, zbins):
-                    cl_3D[ell_idx, zi, zj] = cl_quad(wf_A, wf_B, ell_val, zi, zj)
-        cl_3D = mm.symmetrize_2d_array(cl_3D)
-    else:
+            for zi, zj in zip(np.triu_indices(zbins)[0], np.triu_indices(zbins)[1]):
+                cl_3D[ell_idx, zi, zj] = cl_quad(wf_A, wf_B, ell_val, zi, zj)
+            cl_3D[ell_idx, :, :] = mm.symmetrize_2d_array(cl_3D[ell_idx, :, :])
+    elif not is_auto_spectrum:
         for ell_idx, ell_val in enumerate(ell_values):
-            for zi in range(zbins):
-                for zj in range(zbins):
-                    cl_3D[ell_idx, zi, zj] = cl_quad(wf_A, wf_B, ell_val, zi, zj)
+            cl_3D[ell_idx, :, :] = np.array([[cl_quad(wf_A, wf_B, ell_val, zi, zj)
+                                              for zi in range(zbins)]
+                                             for zj in range(zbins)])
+    else:
+        raise ValueError('is_auto_spectrum must be a bool')
 
     return cl_3D
 
 
-def cl_PyCCL(wf_A, wf_B, ell, zbins, is_auto_spectrum, pk2d, cosmo=None, limber_integration_method='qag_quad'):
+def cl_PyCCL(wf_A, wf_B, ell, zbins, pk2d, cosmo=None, limber_integration_method='qag_quad'):
     # instantiate cosmology
     if cosmo is None:
         cosmo = instantiate_ISTFfid_PyCCL_cosmo_obj()
+
+    is_auto_spectrum = False
+    if wf_A == wf_B:
+        is_auto_spectrum = True
 
     nbl = len(ell)
 
@@ -800,11 +810,15 @@ def cl_PyCCL(wf_A, wf_B, ell, zbins, is_auto_spectrum, pk2d, cosmo=None, limber_
                                               limber_integration_method=limber_integration_method)
         for ell in range(nbl):
             cl_3D[ell, :, :] = mm.symmetrize_2d_array(cl_3D[ell, :, :])
-    else:
+
+    elif not is_auto_spectrum:
         cl_3D = np.array([[ccl.angular_cl(cosmo, wf_A[zi], wf_B[zj], ell, p_of_k_a=pk2d,
                                           limber_integration_method=limber_integration_method)
                            for zi in range(zbins)]
                           for zj in range(zbins)]).transpose(2, 0, 1)  # transpose to have ell as first axis
+    else:
+        raise ValueError('is_auto_spectrum must be either True or False')
+
     return cl_3D
 
 
@@ -906,12 +920,9 @@ def compute_derivatives(fiducial_params, free_params, fixed_params, z_grid, zbin
             wil_PyCCL_obj = wil_PyCCL(z_grid, 'with_IA', cosmo=cosmo, return_PyCCL_object=True)
             wig_PyCCL_obj = wig_PyCCL(z_grid, 'with_galaxy_bias', cosmo=cosmo, return_PyCCL_object=True)
 
-            cl_LL[free_param_name][variation_idx, :, :, :] = cl_PyCCL(wil_PyCCL_obj, wil_PyCCL_obj, ell_LL, zbins,
-                                                                      is_auto_spectrum=True, pk2d=Pk)
-            cl_GL[free_param_name][variation_idx, :, :, :] = cl_PyCCL(wig_PyCCL_obj, wil_PyCCL_obj, ell_GG, zbins,
-                                                                      is_auto_spectrum=False, pk2d=Pk)
-            cl_GG[free_param_name][variation_idx, :, :, :] = cl_PyCCL(wig_PyCCL_obj, wig_PyCCL_obj, ell_GG, zbins,
-                                                                      is_auto_spectrum=True, pk2d=Pk)
+            cl_LL[free_param_name][variation_idx, :, :, :] = cl_PyCCL(wil_PyCCL_obj, wil_PyCCL_obj, ell_LL, zbins, pk2d=Pk)
+            cl_GL[free_param_name][variation_idx, :, :, :] = cl_PyCCL(wig_PyCCL_obj, wil_PyCCL_obj, ell_GG, zbins, pk2d=Pk)
+            cl_GG[free_param_name][variation_idx, :, :, :] = cl_PyCCL(wig_PyCCL_obj, wig_PyCCL_obj, ell_GG, zbins, pk2d=Pk)
 
             # # Computes the WL (w/ and w/o IAs) and GCph kernels
             # A_IA, eta_IA, beta_IA = free_params['Aia'], free_params['eIA'], free_params['bIA']
