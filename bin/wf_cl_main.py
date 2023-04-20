@@ -174,14 +174,11 @@ cl_GL_3D_dark = wf_cl_lib.get_cl_3D_array(wig_IST_func, wil_IA_IST_func, ell_GG)
 cl_GG_3D_dark = wf_cl_lib.get_cl_3D_array(wig_IST_func, wig_IST_func, ell_GG)
 print(f'cl computation took {time.perf_counter() - start_time} seconds with Dark')
 
-mm.compare_arrays(cl_GL_3D_dark[0, :, :], cl_GL_3D[0, :, :], 'cl_GL_3D_dark', 'cl_GL_3D',
+mm.compare_arrays(np.abs(cl_GL_3D_dark[0, :, :]), np.abs(cl_GL_3D[0, :, :]), 'cl_GL_3D_dark', 'cl_GL_3D',
                   plot_array=True, log_array=True,
-                  plot_diff=True, log_diff=False)
+                  plot_diff=True, log_diff=False,
+                  abs_val=True)
 
-
-# set colormap for linspace (zbins)
-cmap = plt.cm.get_cmap('viridis')
-colors = cmap(np.linspace(0, 1, zbins))
 
 plt.figure()
 for zi in range(zbins):
