@@ -162,7 +162,7 @@ ell_GG, delta_GG = ell_values.compute_ells(nbl=nbl, ell_min=ell_min, ell_max=ell
 # note: I can also pass pk2d=None, which uses the default non-linear pk stored in cosmo. The difference is below 10%.
 warnings.warn('I should use pk=None because thats what is used in the derivatives!!!')
 # cl_LL_3D = wf_cl_lib.cl_PyCCL(wil_PyCCL_obj, wil_PyCCL_obj, ell_LL, zbins, pk2d=None)
-cl_GL_3D = wf_cl_lib.cl_PyCCL(wig_PyCCL_obj, wil_PyCCL_obj, ell_GG, zbins, pk2d=None)
+cl_GL_3D = wf_cl_lib.cl_PyCCL(wig_PyCCL_obj, wil_PyCCL_obj, ell_GG, zbins, p_of_k_a=None)
 # cl_GG_3D = wf_cl_lib.cl_PyCCL(wig_PyCCL_obj, wig_PyCCL_obj, ell_GG, zbins, pk2d=None)
 
 # TODO better investigate the pk here

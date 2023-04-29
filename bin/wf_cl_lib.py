@@ -576,16 +576,12 @@ def instantiate_ISTFfid_PyCCL_cosmo_obj():
     Om_m0, Om_b0, Om_nu0 = ISTF.primary['Om_m0'], ISTF.primary['Om_b0'], ISTF.neutrino_params['Om_nu0']
     Om_Lambda0 = ISTF.extensions['Om_Lambda0']
     Om_c0 = Om_m0 - Om_b0 - Om_nu0
+    Om_k0 = csmlib.get_Om_k0(Om_m0, Om_Lambda0)
 
-    Om_k0 = 1 - Om_m0 - Om_Lambda0
-    if np.abs(Om_k0) < 1e-10:
-        warnings.warn("Omega_k is very small but not exactly 0, probably due to numerical errors. Setting it to 0")
-        Om_k0 = 0
-
-    cosmo = ccl.Cosmology(Omega_c=Om_c0, Omega_b=ISTF.primary['Om_b0'], w0=ISTF.primary['w_0'],
-                          wa=ISTF.primary['w_a'], h=ISTF.primary['h_0'], sigma8=ISTF.primary['sigma_8'],
-                          n_s=ISTF.primary['n_s'], m_nu=ISTF.extensions['m_nu'], Omega_k=Om_k0)
-    return cosmo
+    cosmo_ccl = ccl.Cosmology(Omega_c=Om_c0, Omega_b=ISTF.primary['Om_b0'], w0=ISTF.primary['w_0'],
+                              wa=ISTF.primary['w_a'], h=ISTF.primary['h_0'], sigma8=ISTF.primary['sigma_8'],
+                              n_s=ISTF.primary['n_s'], m_nu=ISTF.extensions['m_nu'], Omega_k=Om_k0)
+    return cosmo_ccl
 
 
 def wig_PyCCL(z_grid, which_wf, gal_bias_2d_array=None, bias_model='step-wise', cosmo=None, return_PyCCL_object=False):
@@ -779,7 +775,7 @@ def get_cl_3D_array(wf_A, wf_B, ell_values):
     return cl_3D
 
 
-def cl_PyCCL(wf_A, wf_B, ell, zbins, pk2d, cosmo=None, limber_integration_method='qag_quad'):
+def cl_PyCCL(wf_A, wf_B, ell, zbins, p_of_k_a, cosmo=None, limber_integration_method='qag_quad'):
     # instantiate cosmology
     if cosmo is None:
         cosmo = instantiate_ISTFfid_PyCCL_cosmo_obj()
@@ -790,29 +786,16 @@ def cl_PyCCL(wf_A, wf_B, ell, zbins, pk2d, cosmo=None, limber_integration_method
 
     nbl = len(ell)
 
-    # if pk2d is None:
-    #     # TODO implement the computation of the power spectrum here
-    #     raise NotImplementedError('pk2d must be provided, not yet implemented to compute it here')
-    #     kmin, kmax, nk = 1e-4, 1e1, 500
-    #     k_arr = np.logspace(np.log10(kmin), np.log10(kmax), nk)
-    #     lk_arr = np.log(k_arr)
-    #     z_grid = np.linspace(0, 4, 500)
-    #     a_arr = 1 / (1 + z_grid)
-    #     # pkfunc = lambda k, a: ccl.nonlin_matter_power(cosmo, k, a)
-    #     # this is because the pkfunc signature in ccl.Pk2 must be (k, a), not (cosmo, k, a) 👇
-    #     pkfunc = partial(ccl.nonlin_matter_power, cosmo=cosmo)
-    #     pk2d = ccl.Pk2D(pkfunc=pkfunc, a_arr=a_arr, lk_arr=lk_arr)
-
     if is_auto_spectrum:
         cl_3D = np.zeros((nbl, zbins, zbins))
         for zi, zj in zip(np.triu_indices(zbins)[0], np.triu_indices(zbins)[1]):
-            cl_3D[:, zi, zj] = ccl.angular_cl(cosmo, wf_A[zi], wf_B[zj], ell, p_of_k_a=pk2d,
+            cl_3D[:, zi, zj] = ccl.angular_cl(cosmo, wf_A[zi], wf_B[zj], ell, p_of_k_a=p_of_k_a,
                                               limber_integration_method=limber_integration_method)
         for ell in range(nbl):
             cl_3D[ell, :, :] = mm.symmetrize_2d_array(cl_3D[ell, :, :])
 
     elif not is_auto_spectrum:
-        cl_3D = np.array([[ccl.angular_cl(cosmo, wf_A[zi], wf_B[zj], ell, p_of_k_a=pk2d,
+        cl_3D = np.array([[ccl.angular_cl(cosmo, wf_A[zi], wf_B[zj], ell, p_of_k_a=p_of_k_a,
                                           limber_integration_method=limber_integration_method)
                            for zi in range(zbins)]
                           for zj in range(zbins)]).transpose(2, 0, 1)  # transpose to have ell as first axis
@@ -920,9 +903,12 @@ def compute_derivatives(fiducial_params, free_params, fixed_params, z_grid, zbin
             wil_PyCCL_obj = wil_PyCCL(z_grid, 'with_IA', cosmo=cosmo, return_PyCCL_object=True)
             wig_PyCCL_obj = wig_PyCCL(z_grid, 'with_galaxy_bias', cosmo=cosmo, return_PyCCL_object=True)
 
-            cl_LL[free_param_name][variation_idx, :, :, :] = cl_PyCCL(wil_PyCCL_obj, wil_PyCCL_obj, ell_LL, zbins, pk2d=Pk)
-            cl_GL[free_param_name][variation_idx, :, :, :] = cl_PyCCL(wig_PyCCL_obj, wil_PyCCL_obj, ell_GG, zbins, pk2d=Pk)
-            cl_GG[free_param_name][variation_idx, :, :, :] = cl_PyCCL(wig_PyCCL_obj, wig_PyCCL_obj, ell_GG, zbins, pk2d=Pk)
+            cl_LL[free_param_name][variation_idx, :, :, :] = cl_PyCCL(wil_PyCCL_obj, wil_PyCCL_obj, ell_LL, zbins,
+                                                                      p_of_k_a=Pk)
+            cl_GL[free_param_name][variation_idx, :, :, :] = cl_PyCCL(wig_PyCCL_obj, wil_PyCCL_obj, ell_GG, zbins,
+                                                                      p_of_k_a=Pk)
+            cl_GG[free_param_name][variation_idx, :, :, :] = cl_PyCCL(wig_PyCCL_obj, wig_PyCCL_obj, ell_GG, zbins,
+                                                                      p_of_k_a=Pk)
 
             # # Computes the WL (w/ and w/o IAs) and GCph kernels
             # A_IA, eta_IA, beta_IA = free_params['Aia'], free_params['eIA'], free_params['bIA']
