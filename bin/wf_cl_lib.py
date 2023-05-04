@@ -284,7 +284,7 @@ def niz_normalized(z, zbin_idx):
         raise TypeError('z must be a float, an int or a numpy array')
 
 
-def niz_unnormalized_analytical(z, zbin_idx):
+def niz_unnormalized_analytical(z, zbin_idx, z_edges=z_edges):
     """the one used by Stefano in the PyCCL notebook
     by far the fastest, 0.009592 s"""
     addendum_1 = erf((z - z_out - c_out * z_edges[zbin_idx]) / (sqrt2 * (1 + z) * sigma_out))
@@ -643,7 +643,6 @@ def wil_PyCCL(z_grid, which_wf, cosmo=None, return_PyCCL_object=False):
     FIAzNoCosmoNoGrowth = -1 * A_IA * C_IA * (1 + z_grid_lumin_ratio) ** eta_IA * lumin_ratio ** beta_IA
     FIAz = FIAzNoCosmoNoGrowth * cosmo.cosmo.params.Omega_m / growth_factor_PyCCL
 
-
     # redshift distribution
     niz_unnormalized = np.asarray([niz_unnormalized_analytical(z_grid, zbin_idx) for zbin_idx in range(zbins)])
     niz_normalized_arr = normalize_niz_simps(niz_unnormalized, z_grid).T  # ! unnecessary to normalize
@@ -687,7 +686,7 @@ def wil_PyCCL_ISTFfid(z_grid, which_wf, cosmo=None, return_PyCCL_object=False):
     # instantiate cosmology
     cosmo = instantiate_ISTFfid_PyCCL_cosmo_obj()
 
-    ia_bias = build_IA_bias_1d_arr(z_grid_lumin_ratio, lumin_ratio, cosmo, A_IA=a_IA, eta_IA=eta_IA,
+    ia_bias = build_IA_bias_1d_arr(z_grid_lumin_ratio, lumin_ratio, cosmo, A_IA=A_IA, eta_IA=eta_IA,
                                              beta_IA=beta_IA, C_IA=None, growth_factor=None,
                                              Omega_m=cosmo.cosmo.params.Omega_m)
 
@@ -957,11 +956,11 @@ def compute_derivatives(fiducial_params, free_params, fixed_params, z_grid, zbin
             wig_PyCCL_obj = wig_PyCCL(z_grid, 'with_galaxy_bias', cosmo=cosmo, return_PyCCL_object=True)
 
             cl_LL[free_param_name][variation_idx, :, :, :] = cl_PyCCL(wil_PyCCL_obj, wil_PyCCL_obj, ell_LL, zbins,
-                                                                      p_of_k_a=Pk)
+                                                                      p_of_k_a=Pk, cosmo=cosmo)
             cl_GL[free_param_name][variation_idx, :, :, :] = cl_PyCCL(wig_PyCCL_obj, wil_PyCCL_obj, ell_GG, zbins,
-                                                                      p_of_k_a=Pk)
+                                                                      p_of_k_a=Pk, cosmo=cosmo)
             cl_GG[free_param_name][variation_idx, :, :, :] = cl_PyCCL(wig_PyCCL_obj, wig_PyCCL_obj, ell_GG, zbins,
-                                                                      p_of_k_a=Pk)
+                                                                      p_of_k_a=Pk, cosmo=cosmo)
 
             # # Computes the WL (w/ and w/o IAs) and GCph kernels
             # A_IA, eta_IA, beta_IA = free_params['Aia'], free_params['eIA'], free_params['bIA']
