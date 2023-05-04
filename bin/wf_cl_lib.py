@@ -427,15 +427,16 @@ def b_of_z(z):
 def stepwise_bias(z, bz_values):
     """bz_values is the array containing one bz value per redshift bin; this function copies this value for each z
     in the bin range"""
-    for zbin_idx in range(zbins):
 
+    zbins = len(bz_values)
+
+    for zbin_idx in range(zbins):
         if z < z_minus[zbin_idx]:  # e.g. z = 0 and z_minus[0] = 0.001; in this case, return bias of the first bin
             return bz_values[0]
         if z_minus[zbin_idx] <= z < z_plus[zbin_idx]:
             return bz_values[zbin_idx]
         if z >= z_plus[-1]:  # max redshift bin
             return bz_values[zbins - 1]  # last value
-
 
 
 def build_galaxy_bias_2d_arr(bias_values, z_values, zbins, z_grid, bias_model, plot_bias=False):
@@ -451,6 +452,10 @@ def build_galaxy_bias_2d_arr(bias_values, z_values, zbins, z_grid, bias_model, p
     :param plot_bias: whether to plot the bias values for the different redshift bins
     :return: bias_values: array of shape (len(z_grid), zbins) containing the bias values for each redshift bin.
     """
+
+    if bias_values is None and z_values is None:
+        z_values = ISTF.photoz_bins['z_mean']
+        bias_values = np.asarray([b_of_z(z) for z in z_values])
 
     assert len(bias_values) == zbins, 'bias_values must be an array of length zbins'
 
@@ -479,7 +484,8 @@ def build_galaxy_bias_2d_arr(bias_values, z_values, zbins, z_grid, bias_model, p
     return bias_values
 
 
-def build_IA_bias_1d_arr(z_grid_lumin_ratio, lumin_ratio=lumin_ratio, cosmo=None, A_IA=None, eta_IA=None, beta_IA=None, C_IA=None,
+def build_IA_bias_1d_arr(z_grid_lumin_ratio, lumin_ratio=lumin_ratio, cosmo=None, A_IA=None, eta_IA=None, beta_IA=None,
+                         C_IA=None,
                          growth_factor=None, Omega_m=None, output_F_IA_of_z=False):
     """
     None is the default value, in which case we use ISTF fiducial values (or the cosmo object)
@@ -682,8 +688,8 @@ def wil_PyCCL_ISTFfid(z_grid, which_wf, cosmo=None, return_PyCCL_object=False):
     cosmo = instantiate_ISTFfid_PyCCL_cosmo_obj()
 
     ia_bias = build_IA_bias_1d_arr(z_grid_lumin_ratio, lumin_ratio, cosmo, A_IA=A_IA, eta_IA=eta_IA,
-                                             beta_IA=beta_IA, C_IA=None, growth_factor=None,
-                                             Omega_m=cosmo.cosmo.params.Omega_m)
+                                   beta_IA=beta_IA, C_IA=None, growth_factor=None,
+                                   Omega_m=cosmo.cosmo.params.Omega_m)
 
     # growth_factor_PyCCL = ccl.growth_factor(cosmo, a=1 / (1 + z_grid_lumin_ratio))  # validated against mine
     # FIAzNoCosmoNoGrowth = -1 * A_IA * C_IA * (1 + z_grid_lumin_ratio) ** eta_IA * lumin_ratio ** beta_IA
@@ -842,10 +848,13 @@ def cl_PyCCL(wf_A, wf_B, ell, zbins, p_of_k_a, cosmo, limber_integration_method=
             cl_3D[ell, :, :] = mm.symmetrize_2d_array(cl_3D[ell, :, :])
 
     elif not is_auto_spectrum:
+        # be very careful with the order of the zi, zj loops: you have to revert them in NESTED list comprehensions to
+        # have zi as first axis and zj as second axis (the code below is tested and works)
         cl_3D = np.array([[ccl.angular_cl(cosmo, wf_A[zi], wf_B[zj], ell, p_of_k_a=p_of_k_a,
                                           limber_integration_method=limber_integration_method)
-                           for zi in range(zbins)]
-                          for zj in range(zbins)]).transpose(2, 0, 1)  # transpose to have ell as first axis
+                           for zj in range(zbins)]
+                          for zi in range(zbins)]
+                         ).transpose(2, 0, 1)  # transpose to have ell as first axis
     else:
         raise ValueError('is_auto_spectrum must be either True or False')
 
