@@ -110,7 +110,8 @@ n_gal = ISTF.other_survey_specs['n_gal']
 lumin_ratio_file = np.genfromtxt(f"{project_path}/input/scaledmeanlum-E2Sa.dat")
 
 z_grid_lumin_ratio = lumin_ratio_file[:, 0]
-lumin_ratio_func = interp1d(z_grid_lumin_ratio, lumin_ratio_file[:, 1], kind='linear', fill_value='extrapolate')
+lumin_ratio = lumin_ratio_file[:, 1]
+lumin_ratio_func = interp1d(z_grid_lumin_ratio, lumin_ratio, kind='linear', fill_value='extrapolate')
 
 z_max_cl = cfg.z_max_cl
 k_grid = np.logspace(np.log10(cfg.k_min), np.log10(cfg.k_max), cfg.k_points)
@@ -483,7 +484,7 @@ def build_galaxy_bias_2d_arr(bias_values, z_values, zbins, z_grid, bias_model, p
     return bias_values
 
 
-def build_IA_bias_1d_arr(z_grid_lumin_ratio, lumin_ratio, cosmo=None, A_IA=None, eta_IA=None, beta_IA=None, C_IA=None,
+def build_IA_bias_1d_arr(z_grid_lumin_ratio, lumin_ratio=lumin_ratio, cosmo=None, A_IA=None, eta_IA=None, beta_IA=None, C_IA=None,
                          growth_factor=None, Omega_m=None, output_F_IA_of_z=False):
     """
     None is the default value, in which case we use ISTF fiducial values (or the cosmo object)
@@ -642,6 +643,7 @@ def wil_PyCCL(z_grid, which_wf, cosmo=None, return_PyCCL_object=False):
     FIAzNoCosmoNoGrowth = -1 * A_IA * C_IA * (1 + z_grid_lumin_ratio) ** eta_IA * lumin_ratio ** beta_IA
     FIAz = FIAzNoCosmoNoGrowth * cosmo.cosmo.params.Omega_m / growth_factor_PyCCL
 
+
     # redshift distribution
     niz_unnormalized = np.asarray([niz_unnormalized_analytical(z_grid, zbin_idx) for zbin_idx in range(zbins)])
     niz_normalized_arr = normalize_niz_simps(niz_unnormalized, z_grid).T  # ! unnecessary to normalize
@@ -649,6 +651,57 @@ def wil_PyCCL(z_grid, which_wf, cosmo=None, return_PyCCL_object=False):
     # compute the tracer objects
     wil = [ccl.tracers.WeakLensingTracer(cosmo, dndz=(z_grid, niz_normalized_arr[:, zbin_idx]),
                                          ia_bias=(z_grid_lumin_ratio, FIAz), use_A_ia=False)
+           for zbin_idx in range(zbins)]
+
+    if return_PyCCL_object:
+        return wil
+
+    # get the radial kernels
+    # comoving distance of z
+    a_arr = 1 / (1 + z_grid)
+    chi = ccl.comoving_radial_distance(cosmo, a_arr)
+    wil_PyCCL_arr = np.asarray([wil[zbin_idx].get_kernel(chi) for zbin_idx in range(zbins)])
+
+    # these methods do not return ISTF kernels:
+    # for wil, I have the 2 components w_gamma and w_IA separately, see below
+    if which_wf == 'with_IA':
+        wil_noIA_PyCCL_arr = wil_PyCCL_arr[:, 0, :]
+        wil_IAonly_PyCCL_arr = wil_PyCCL_arr[:, 1, :]
+        growth_factor_PyCCL = ccl.growth_factor(cosmo, a=1 / (1 + z_grid))
+        result = wil_noIA_PyCCL_arr - (A_IA * C_IA * Om0 * F_IA(z_grid)) / growth_factor_PyCCL * wil_IAonly_PyCCL_arr
+        return result.T
+    elif which_wf == 'without_IA':
+        return wil_PyCCL_arr[:, 0, :].T
+    elif which_wf == 'IA_only':
+        return wil_PyCCL_arr[:, 1, :].T
+    else:
+        raise ValueError('which_wf must be "with_IA", "without_IA" or "IA_only"')
+
+
+def wil_PyCCL_ISTFfid(z_grid, which_wf, cosmo=None, return_PyCCL_object=False):
+    """ This is a wrapper function to call the kernels with PyCCL. arguments that default to None will be set to the
+    ISTF values."""
+
+    warnings.warn('the IA part of this must be updated')
+
+    # instantiate cosmology
+    cosmo = instantiate_ISTFfid_PyCCL_cosmo_obj()
+
+    ia_bias = build_IA_bias_1d_arr(z_grid_lumin_ratio, lumin_ratio, cosmo, A_IA=a_IA, eta_IA=eta_IA,
+                                             beta_IA=beta_IA, C_IA=None, growth_factor=None,
+                                             Omega_m=cosmo.cosmo.params.Omega_m)
+
+    # growth_factor_PyCCL = ccl.growth_factor(cosmo, a=1 / (1 + z_grid_lumin_ratio))  # validated against mine
+    # FIAzNoCosmoNoGrowth = -1 * A_IA * C_IA * (1 + z_grid_lumin_ratio) ** eta_IA * lumin_ratio ** beta_IA
+    # FIAz = FIAzNoCosmoNoGrowth * cosmo.cosmo.params.Omega_m / growth_factor_PyCCL
+
+    # redshift distribution
+    niz_unnormalized = np.asarray([niz_unnormalized_analytical(z_grid, zbin_idx) for zbin_idx in range(zbins)])
+    niz_normalized_arr = normalize_niz_simps(niz_unnormalized, z_grid).T  # ! unnecessary to normalize
+
+    # compute the tracer objects
+    wil = [ccl.tracers.WeakLensingTracer(cosmo, dndz=(z_grid, niz_normalized_arr[:, zbin_idx]),
+                                         ia_bias=(z_grid_lumin_ratio, ia_bias), use_A_ia=False)
            for zbin_idx in range(zbins)]
 
     if return_PyCCL_object:
@@ -775,7 +828,7 @@ def get_cl_3D_array(wf_A, wf_B, ell_values):
     return cl_3D
 
 
-def cl_PyCCL(wf_A, wf_B, ell, zbins, p_of_k_a, cosmo=None, limber_integration_method='qag_quad'):
+def cl_PyCCL(wf_A, wf_B, ell, zbins, p_of_k_a, cosmo, limber_integration_method='qag_quad'):
     # instantiate cosmology
     if cosmo is None:
         cosmo = instantiate_ISTFfid_PyCCL_cosmo_obj()
