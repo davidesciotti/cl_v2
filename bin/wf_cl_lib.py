@@ -437,11 +437,6 @@ def stepwise_bias(z, bz_values):
             return bz_values[zbins - 1]  # last value
 
 
-def build_bias_zgrid_deprecated(z_grid):
-    bz_values = np.asarray([b_of_z(z_mean_val) for z_mean_val in z_mean])
-    bias_zgrid = np.array([stepwise_bias(z, bz_values) for z in z_grid])
-    return bias_zgrid
-
 
 def build_galaxy_bias_2d_arr(bias_values, z_values, zbins, z_grid, bias_model, plot_bias=False):
     """
