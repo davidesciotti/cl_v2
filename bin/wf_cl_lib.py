@@ -1,5 +1,6 @@
 import pdb
 import warnings
+from copy import deepcopy
 
 import scipy
 import sys
@@ -120,7 +121,13 @@ use_h_units = cfg.use_h_units
 
 warnings.warn('RECHECK Ox0 in cosmolib')
 warnings.warn('RECHECK z_mean')
-warnings.warn('RECHECK lumin_ratio_extrapolated')
+warnings.warn('RECHECK the lines below for neutrinos, or better move them to cosmo_lib...')
+
+mnu = 0.06
+nnu = 3.046
+neutrino_mass_fac = 94.07
+g_factor = nnu / 3
+omnuh2 = mnu / neutrino_mass_fac * (g_factor) ** 0.75
 
 
 ####################################### function definition
@@ -484,13 +491,15 @@ def build_galaxy_bias_2d_arr(bias_values, z_values, zbins, z_grid, bias_model, p
     return bias_values
 
 
-def build_IA_bias_1d_arr(z_grid_lumin_ratio, lumin_ratio=lumin_ratio, cosmo=None, A_IA=None, eta_IA=None, beta_IA=None,
-                         C_IA=None,
-                         growth_factor=None, Omega_m=None, output_F_IA_of_z=False):
+def build_IA_bias_1d_arr(z_grid_out, input_z_grid_lumin_ratio=None, input_lumin_ratio=None, cosmo=None, A_IA=None,
+                         eta_IA=None, beta_IA=None, C_IA=None, growth_factor=None, Omega_m=None,
+                         output_F_IA_of_z=False):
     """
     None is the default value, in which case we use ISTF fiducial values (or the cosmo object)
-    :param lumin_ratio:
-    :param z_grid_lumin_ratio:
+    :param input_z_grid_lumin_ratio:
+    :param input_lumin_ratio:
+    :param z_grid_out: the redshift grid on which the IA bias is evaluated (which can be different from the one used for
+    the luminosity ratio, which are stored in z_grid_lumin_ratio! Note the presence of the interpolator)
     :param cosmo:
     :param A_IA:
     :param C_IA:
@@ -510,15 +519,25 @@ def build_IA_bias_1d_arr(z_grid_lumin_ratio, lumin_ratio=lumin_ratio, cosmo=None
     if C_IA is None:
         C_IA = ISTF.IA_fixed['C_IA']
     if growth_factor is None:
-        growth_factor = ccl.growth_factor(cosmo, a=1 / (1 + z_grid_lumin_ratio))
+        growth_factor = ccl.growth_factor(cosmo, a=1 / (1 + z_grid_out))
     if Omega_m is None:
         Omega_m = cosmo.cosmo.params.Omega_m
+    if input_lumin_ratio is None and input_z_grid_lumin_ratio is None:
+        input_lumin_ratio = lumin_ratio
+        input_z_grid_lumin_ratio = z_grid_lumin_ratio
+    if (input_lumin_ratio is None) ^ (input_z_grid_lumin_ratio is None):
+        raise ValueError('both input_lumin_ratio and input_z_grid_lumin_ratio must be either None or not None')
 
-    assert len(growth_factor) == len(z_grid_lumin_ratio), 'growth_factor must have the same length ' \
-                                                          'as z_grid_lumin_ratio (it must be computed in these ' \
-                                                          'redshifts!)'
+    if not np.array_equal(z_grid_out, input_z_grid_lumin_ratio):
+        input_lumin_ratio_func = scipy.interpolate.interp1d(input_z_grid_lumin_ratio, input_lumin_ratio, kind='linear',
+                                                            fill_value='extrapolate')
+        input_lumin_ratio = input_lumin_ratio_func(z_grid_out)
 
-    F_IA_of_z = (1 + z_grid_lumin_ratio) ** eta_IA * lumin_ratio ** beta_IA
+    assert len(growth_factor) == len(z_grid_out), 'growth_factor must have the same length ' \
+                                                  'as z_grid (it must be computed in these ' \
+                                                  'redshifts!)'
+
+    F_IA_of_z = (1 + z_grid_out) ** eta_IA * input_lumin_ratio ** beta_IA
     warnings.warn('IA bias is defined with the minus sign! should I change this?')
     ia_bias = -1 * A_IA * C_IA * Omega_m * F_IA_of_z / growth_factor
 
@@ -578,7 +597,7 @@ def instantiate_ISTFfid_PyCCL_cosmo_obj():
     Om_m0, Om_b0, Om_nu0 = ISTF.primary['Om_m0'], ISTF.primary['Om_b0'], ISTF.neutrino_params['Om_nu0']
     Om_Lambda0 = ISTF.extensions['Om_Lambda0']
     Om_c0 = Om_m0 - Om_b0 - Om_nu0
-    Om_k0 = csmlib.get_Om_k0(Om_m0, Om_Lambda0)
+    Om_k0 = csmlib.get_Omega_k0(Om_m0, Om_Lambda0)
 
     cosmo_ccl = ccl.Cosmology(Omega_c=Om_c0, Omega_b=ISTF.primary['Om_b0'], w0=ISTF.primary['w_0'],
                               wa=ISTF.primary['w_a'], h=ISTF.primary['h_0'], sigma8=ISTF.primary['sigma_8'],
@@ -627,31 +646,42 @@ def wig_PyCCL(z_grid, which_wf, gal_bias_2d_array=None, bias_model='step-wise', 
         raise ValueError('which_wf must be "with_galaxy_bias", "without_galaxy_bias" or "galaxy_bias_only"')
 
 
-def wil_PyCCL(z_grid, which_wf, cosmo=None, return_PyCCL_object=False):
+def wil_PyCCL(z_grid, which_wf, cosmo=None, dndz=None, ia_bias=None, return_PyCCL_object=False, n_samples=1000):
     """ This is a wrapper function to call the kernels with PyCCL. arguments that default to None will be set to the
     ISTF values."""
 
-    warnings.warn('the IA part of this must be updated')
     # instantiate cosmology
     if cosmo is None:
         cosmo = instantiate_ISTFfid_PyCCL_cosmo_obj()
 
-    # Intrinsic alignment
-    z_grid_lumin_ratio = lumin_ratio_file[:, 0]
-    lumin_ratio = lumin_ratio_file[:, 1]
+    # build intrinsic alignment bias array
+    if ia_bias is None:
+        z_grid_lumin_ratio = lumin_ratio_file[:, 0]
+        lumin_ratio = lumin_ratio_file[:, 1]
+        ia_bias_1d_arr = build_IA_bias_1d_arr(z_grid_out=z_grid_lumin_ratio,
+                                              input_z_grid_lumin_ratio=z_grid_lumin_ratio,
+                                              input_lumin_ratio=lumin_ratio, cosmo=cosmo, A_IA=A_IA,
+                                              eta_IA=eta_IA, beta_IA=beta_IA, C_IA=None, growth_factor=None,
+                                              Omega_m=cosmo.cosmo.params.Omega_m, output_F_IA_of_z=False)
+        ia_bias = (z_grid_lumin_ratio, ia_bias_1d_arr)
 
-    growth_factor_PyCCL = ccl.growth_factor(cosmo, a=1 / (1 + z_grid_lumin_ratio))  # validated against mine
-    FIAzNoCosmoNoGrowth = -1 * A_IA * C_IA * (1 + z_grid_lumin_ratio) ** eta_IA * lumin_ratio ** beta_IA
-    FIAz = FIAzNoCosmoNoGrowth * cosmo.cosmo.params.Omega_m / growth_factor_PyCCL
+    assert len(ia_bias) == 2, 'ia_bias must be a tuple of length 2'
+    assert ia_bias[0].shape == ia_bias[1].shape, 'ia_bias must be a tuple of two arrays of the same shape'
 
     # redshift distribution
-    niz_unnormalized = np.asarray([niz_unnormalized_analytical(z_grid, zbin_idx) for zbin_idx in range(zbins)])
-    niz_normalized_arr = normalize_niz_simps(niz_unnormalized, z_grid).T  # ! unnecessary to normalize
+    if dndz is None:
+        z_grid_nz = np.linspace(1e-5, 3, 1000)
+        niz_unnormalized = np.asarray([niz_unnormalized_analytical(z_grid_nz, zbin_idx) for zbin_idx in range(zbins)])
+        niz_normalized_arr = normalize_niz_simps(niz_unnormalized, z_grid_nz).T  # ! unnecessary to normalize
+        dndz = (z_grid_nz, niz_normalized_arr)
+
+    assert len(dndz) == 2, 'dndz must be a tuple of length 2'
+    assert dndz[0].shape[0] == dndz[1].shape[0], 'dndz must be a tuple of two arrays of the same shape'
+    assert dndz[1].shape[1] == zbins, 'dndz must be a tuple of two arrays of shape (len(z_grid), zbins)'
 
     # compute the tracer objects
-    wil = [ccl.tracers.WeakLensingTracer(cosmo, dndz=(z_grid, niz_normalized_arr[:, zbin_idx]),
-                                         ia_bias=(z_grid_lumin_ratio, FIAz), use_A_ia=False)
-           for zbin_idx in range(zbins)]
+    wil = [ccl.tracers.WeakLensingTracer(cosmo, dndz=(dndz[0], dndz[1][:, zbin_idx]), ia_bias=ia_bias, use_A_ia=False,
+                                         n_samples=n_samples) for zbin_idx in range(zbins)]
 
     if return_PyCCL_object:
         return wil
@@ -668,58 +698,8 @@ def wil_PyCCL(z_grid, which_wf, cosmo=None, return_PyCCL_object=False):
         wil_noIA_PyCCL_arr = wil_PyCCL_arr[:, 0, :]
         wil_IAonly_PyCCL_arr = wil_PyCCL_arr[:, 1, :]
         growth_factor_PyCCL = ccl.growth_factor(cosmo, a=1 / (1 + z_grid))
-        result = wil_noIA_PyCCL_arr - (A_IA * C_IA * Om0 * F_IA(z_grid)) / growth_factor_PyCCL * wil_IAonly_PyCCL_arr
-        return result.T
-    elif which_wf == 'without_IA':
-        return wil_PyCCL_arr[:, 0, :].T
-    elif which_wf == 'IA_only':
-        return wil_PyCCL_arr[:, 1, :].T
-    else:
-        raise ValueError('which_wf must be "with_IA", "without_IA" or "IA_only"')
-
-
-def wil_PyCCL_ISTFfid(z_grid, which_wf, cosmo=None, return_PyCCL_object=False):
-    """ This is a wrapper function to call the kernels with PyCCL. arguments that default to None will be set to the
-    ISTF values."""
-
-    warnings.warn('the IA part of this must be updated')
-
-    # instantiate cosmology
-    cosmo = instantiate_ISTFfid_PyCCL_cosmo_obj()
-
-    ia_bias = build_IA_bias_1d_arr(z_grid_lumin_ratio, lumin_ratio, cosmo, A_IA=A_IA, eta_IA=eta_IA,
-                                   beta_IA=beta_IA, C_IA=None, growth_factor=None,
-                                   Omega_m=cosmo.cosmo.params.Omega_m)
-
-    # growth_factor_PyCCL = ccl.growth_factor(cosmo, a=1 / (1 + z_grid_lumin_ratio))  # validated against mine
-    # FIAzNoCosmoNoGrowth = -1 * A_IA * C_IA * (1 + z_grid_lumin_ratio) ** eta_IA * lumin_ratio ** beta_IA
-    # FIAz = FIAzNoCosmoNoGrowth * cosmo.cosmo.params.Omega_m / growth_factor_PyCCL
-
-    # redshift distribution
-    niz_unnormalized = np.asarray([niz_unnormalized_analytical(z_grid, zbin_idx) for zbin_idx in range(zbins)])
-    niz_normalized_arr = normalize_niz_simps(niz_unnormalized, z_grid).T  # ! unnecessary to normalize
-
-    # compute the tracer objects
-    wil = [ccl.tracers.WeakLensingTracer(cosmo, dndz=(z_grid, niz_normalized_arr[:, zbin_idx]),
-                                         ia_bias=(z_grid_lumin_ratio, ia_bias), use_A_ia=False)
-           for zbin_idx in range(zbins)]
-
-    if return_PyCCL_object:
-        return wil
-
-    # get the radial kernels
-    # comoving distance of z
-    a_arr = 1 / (1 + z_grid)
-    chi = ccl.comoving_radial_distance(cosmo, a_arr)
-    wil_PyCCL_arr = np.asarray([wil[zbin_idx].get_kernel(chi) for zbin_idx in range(zbins)])
-
-    # these methods do not return ISTF kernels:
-    # for wil, I have the 2 components w_gamma and w_IA separately, see below
-    if which_wf == 'with_IA':
-        wil_noIA_PyCCL_arr = wil_PyCCL_arr[:, 0, :]
-        wil_IAonly_PyCCL_arr = wil_PyCCL_arr[:, 1, :]
-        growth_factor_PyCCL = ccl.growth_factor(cosmo, a=1 / (1 + z_grid))
-        result = wil_noIA_PyCCL_arr - (A_IA * C_IA * Om0 * F_IA(z_grid)) / growth_factor_PyCCL * wil_IAonly_PyCCL_arr
+        result = wil_noIA_PyCCL_arr - (A_IA * C_IA * cosmo.cosmo.params.Omega_m * F_IA(
+            z_grid)) / growth_factor_PyCCL * wil_IAonly_PyCCL_arr
         return result.T
     elif which_wf == 'without_IA':
         return wil_PyCCL_arr[:, 0, :].T
@@ -734,7 +714,7 @@ def wil_PyCCL_ISTFfid(z_grid, which_wf, cosmo=None, return_PyCCL_object=False):
 # TODO these contain cosmology dependence...
 cosmo_classy = csmlib.cosmo_classy
 cosmo_astropy = csmlib.cosmo_astropy
-pk = csmlib.calculate_power(k_grid, z_grid, cosmo_classy, use_h_units=use_h_units)
+k_grid, pk = csmlib.calculate_power(k_grid, z_grid, cosmo_classy, use_h_units=use_h_units)
 pk_interp_func = interp2d(k_grid, z_grid, pk)
 
 # wrapper functions, just to shorten the names
@@ -870,16 +850,16 @@ def stem(Cl_arr, variations_arr, zbins, nbl):
     variations_arr_cpy = variations_arr.copy()
 
     # TODO is there a way to specify the axis along which to fit, instead of having to loop over i, j, ell?
-    for i in range(zbins):
-        for j in range(zbins):
+    for zi in range(zbins):
+        for zj in range(zbins):
             for ell in range(nbl):
 
                 # perform linear fit
-                angular_coefficient, c = np.polyfit(variations_arr_cpy, Cl_arr_cpy[:, i, j, ell], deg=1)
+                angular_coefficient, c = np.polyfit(variations_arr_cpy, Cl_arr_cpy[:, zi, zj, ell], deg=1)
                 fitted_y_values = angular_coefficient * variations_arr_cpy + c
 
                 # check % difference
-                perc_diffs = mm.percent_diff(Cl_arr_cpy[:, i, j, ell], fitted_y_values)
+                perc_diffs = mm.percent_diff(Cl_arr_cpy[:, zi, zj, ell], fitted_y_values)
 
                 # as long as any element has a percent deviation greater than 1%, remove first and last values
                 while np.any(perc_diffs > 1):
@@ -890,18 +870,18 @@ def stem(Cl_arr, variations_arr, zbins, nbl):
                     variations_arr_cpy = np.delete(variations_arr_cpy, [0, -1])
 
                     # re-compute the fit on the reduced set
-                    angular_coefficient, intercept = np.polyfit(variations_arr_cpy, Cl_arr_cpy[:, i, j, ell], deg=1)
+                    angular_coefficient, intercept = np.polyfit(variations_arr_cpy, Cl_arr_cpy[:, zi, zj, ell], deg=1)
                     fitted_y_values = angular_coefficient * variations_arr_cpy + intercept
 
                     # test again
-                    perc_diffs = mm.percent_diff(Cl_arr_cpy[:, i, j, ell], fitted_y_values)
+                    perc_diffs = mm.percent_diff(Cl_arr_cpy[:, zi, zj, ell], fitted_y_values)
 
                     # plt.figure()
                     # plt.plot(Omega_c_values_toder, fitted_y_values, '--', lw=2, c=colors[iteration])
-                    # plt.plot(Omega_c_values_toder, CLL_toder[:, i, j, ell], marker='o', c=colors[iteration])
+                    # plt.plot(Omega_c_values_toder, CLL_toder[:, zi, zj, ell], marker='o', c=colors[iteration])
 
                 # store the value of the derivative
-                dCLL_arr[i, j, ell] = angular_coefficient
+                dCLL_arr[zi, zj, ell] = angular_coefficient
 
     return dCLL_arr
 
@@ -932,15 +912,15 @@ def compute_derivatives(fiducial_params, free_params, fixed_params, z_grid, zbin
     dcl_LL, dcl_GL, dcl_GG = {}, {}, {}
 
     # loop over the free parameters and store the cls in a dictionary
-    for free_param_name in free_params.keys():
+    for param_to_vary in free_params.keys():
 
         # instantiate derivatives array for the given free parameter key
-        cl_LL[free_param_name] = np.zeros((num_variations, nbl_WL, zbins, zbins))
-        cl_GL[free_param_name] = np.zeros((num_variations, nbl_GC, zbins, zbins))
-        cl_GG[free_param_name] = np.zeros((num_variations, nbl_GC, zbins, zbins))
+        cl_LL[param_to_vary] = np.zeros((num_variations, nbl_WL, zbins, zbins))
+        cl_GL[param_to_vary] = np.zeros((num_variations, nbl_GC, zbins, zbins))
+        cl_GG[param_to_vary] = np.zeros((num_variations, nbl_GC, zbins, zbins))
 
-        # loop over the perturbed parameter's (i.e. free_param_name) values, stored in variations[free_param_name]
-        for variation_idx, free_params[free_param_name] in enumerate(variations[free_param_name]):
+        # loop over the perturbed parameter's (i.e. param_to_vary) values, stored in variations[param_to_vary]
+        for variation_idx, free_params[param_to_vary] in enumerate(variations[param_to_vary]):
             t0 = time.perf_counter()
 
             # TODO check if the variations are consistent with the parameter's relations (eg omega_lambda?)
@@ -959,12 +939,12 @@ def compute_derivatives(fiducial_params, free_params, fixed_params, z_grid, zbin
             wil_PyCCL_obj = wil_PyCCL(z_grid, 'with_IA', cosmo=cosmo, return_PyCCL_object=True)
             wig_PyCCL_obj = wig_PyCCL(z_grid, 'with_galaxy_bias', cosmo=cosmo, return_PyCCL_object=True)
 
-            cl_LL[free_param_name][variation_idx, :, :, :] = cl_PyCCL(wil_PyCCL_obj, wil_PyCCL_obj, ell_LL, zbins,
-                                                                      p_of_k_a=Pk, cosmo=cosmo)
-            cl_GL[free_param_name][variation_idx, :, :, :] = cl_PyCCL(wig_PyCCL_obj, wil_PyCCL_obj, ell_GG, zbins,
-                                                                      p_of_k_a=Pk, cosmo=cosmo)
-            cl_GG[free_param_name][variation_idx, :, :, :] = cl_PyCCL(wig_PyCCL_obj, wig_PyCCL_obj, ell_GG, zbins,
-                                                                      p_of_k_a=Pk, cosmo=cosmo)
+            cl_LL[param_to_vary][variation_idx, :, :, :] = cl_PyCCL(wil_PyCCL_obj, wil_PyCCL_obj, ell_LL, zbins,
+                                                                    p_of_k_a=Pk, cosmo=cosmo)
+            cl_GL[param_to_vary][variation_idx, :, :, :] = cl_PyCCL(wig_PyCCL_obj, wil_PyCCL_obj, ell_GG, zbins,
+                                                                    p_of_k_a=Pk, cosmo=cosmo)
+            cl_GG[param_to_vary][variation_idx, :, :, :] = cl_PyCCL(wig_PyCCL_obj, wig_PyCCL_obj, ell_GG, zbins,
+                                                                    p_of_k_a=Pk, cosmo=cosmo)
 
             # # Computes the WL (w/ and w/o IAs) and GCph kernels
             # A_IA, eta_IA, beta_IA = free_params['Aia'], free_params['eIA'], free_params['bIA']
@@ -1004,22 +984,199 @@ def compute_derivatives(fiducial_params, free_params, fixed_params, z_grid, zbin
 
             # the key specifies the parameter, but I still need an array of values - corresponding to the 15 variations over
             # the fiducial values
-            # CLL[free_param_name][variation_idx, :, :, :] = np.array([[ccl.angular_cl(cosmo, wil[iz], wil[jz],
+            # CLL[param_to_vary][variation_idx, :, :, :] = np.array([[ccl.angular_cl(cosmo, wil[iz], wil[jz],
             #                                                                          ell, p_of_k_a=None)
             #                                                           for iz in range(zbins)]
             #                                                          for jz in range(zbins)])
 
             print(
-                f'{free_param_name} = {free_params[free_param_name]:.4f} Cls computed in {(time.perf_counter() - t0):.2f} '
+                f'{param_to_vary} = {free_params[param_to_vary]:.4f} Cls computed in {(time.perf_counter() - t0):.2f} '
                 f'seconds')
 
         # once finished looping over the variations, reset the parameter to its fiducial value
-        free_params[free_param_name] = fiducial_params[free_param_name]
+        free_params[param_to_vary] = fiducial_params[param_to_vary]
 
         # save the Cls
-        dcl_LL[free_param_name] = stem(cl_LL[free_param_name], variations[free_param_name], zbins, nbl_WL)
-        dcl_GL[free_param_name] = stem(cl_GL[free_param_name], variations[free_param_name], zbins, nbl_GC)
-        dcl_GG[free_param_name] = stem(cl_GG[free_param_name], variations[free_param_name], zbins, nbl_GC)
+        dcl_LL[param_to_vary] = stem(cl_LL[param_to_vary], variations[param_to_vary], zbins, nbl_WL)
+        dcl_GL[param_to_vary] = stem(cl_GL[param_to_vary], variations[param_to_vary], zbins, nbl_GC)
+        dcl_GG[param_to_vary] = stem(cl_GG[param_to_vary], variations[param_to_vary], zbins, nbl_GC)
 
-        print(f'SteM derivative computed for {free_param_name}')
+        print(f'SteM derivative computed for {param_to_vary}')
         return dcl_LL, dcl_GL, dcl_GG
+
+
+def compute_derivatives_v2(fiducial_values_dict, list_params_to_vary, z_grid, zbins, ell_LL, ell_GG,
+                           bias_model, Pk=None, use_only_flat_models=True):
+    """
+    Compute the derivatives of the power spectrum with respect to the free parameters
+    """
+    # TODO cleanup the function, + make it single-probe
+    # TODO implement checks on the input parameters
+    # TODO input dndz galaxy and IA bias
+
+    assert 'Omega_k' not in list_params_to_vary, 'Omega_k cannot be varied at the moment'
+
+    nbl_WL = len(ell_LL)
+    nbl_GC = len(ell_GG)
+
+    # the redshift distribution and galaxy bias are not cosmology dependent, so they can be computed outside the loop
+    z_grid_nz = np.linspace(1e-5, 3, 1000)
+    niz_unnormalized = np.asarray([niz_unnormalized_analytical(z_grid_nz, zbin_idx) for zbin_idx in range(zbins)])
+    niz_normalized_arr = normalize_niz_simps(niz_unnormalized, z_grid_nz).T
+    dndz = (z_grid_nz, niz_normalized_arr)
+
+    assert zbins == 10, 'zbins must be 10 if bias_zgrid is not provided'
+    z_values = ISTF.photoz_bins['z_mean']
+    bias_values = np.asarray([b_of_z(z) for z in z_values])
+    gal_bias_2d_array = build_galaxy_bias_2d_arr(bias_values, z_values, zbins, z_grid, bias_model)
+
+    percentages = np.asarray((-10., -5., -3.75, -2.5, -1.875, -1.25, -0.625, 0,
+                              0.625, 1.25, 1.875, 2.5, 3.75, 5., 10.)) / 100
+    num_points_derivative = len(percentages)
+
+    # declare cl and dcl vectors
+    cl_LL, cl_GL, cl_GG = {}, {}, {}
+    dcl_LL, dcl_GL, dcl_GG = {}, {}, {}
+
+    # loop over the free parameters and store the cls in a dictionary
+    for param_to_vary in list_params_to_vary:
+
+        print(f'working on {param_to_vary}...')
+
+        # shift the parameter
+        varied_param_values = fiducial_values_dict[param_to_vary] + fiducial_values_dict[param_to_vary] * percentages
+        if param_to_vary == "wa":  # wa is 0! take directly the percentages
+            varied_param_values = percentages
+
+        # ricorda che, quando shifti OmegaM va messo OmegaCDM in modo che OmegaB + OmegaCDM dia il valore corretto di OmegaM,
+        # mentre quando shifti OmegaB deve essere aggiustato sempre OmegaCDM in modo che OmegaB + OmegaCDM = 0.32; per OmegaX
+        # lo shift ti darà un OmegaM + OmegaDE diverso da 1 il che corrisponde appunto ad avere modelli non piatti
+
+        # this dictionary will contain the shifted values of the parameters; it is initialized with the fiducial values
+        # for each new parameter to be varied
+        # ! important note: the fiducial and varied_fiducial dict contain all cosmological parameters, not just the ones
+        # ! that are varied (specified in list_params_to_vary). This is to be able to change the set of
+        # ! varied parameters easily
+        varied_fiducial_params_dict = deepcopy(fiducial_values_dict)
+        vfpd = varied_fiducial_params_dict  # alias
+
+        # instantiate derivatives array for the given free parameter key
+        cl_LL[param_to_vary] = np.zeros((num_points_derivative, nbl_WL, zbins, zbins))
+        cl_GL[param_to_vary] = np.zeros((num_points_derivative, nbl_GC, zbins, zbins))
+        cl_GG[param_to_vary] = np.zeros((num_points_derivative, nbl_GC, zbins, zbins))
+
+        for variation_idx, vfpd[param_to_vary] in enumerate(varied_param_values):
+
+            if use_only_flat_models:
+                # in this case I want omk = 0, so if Omega_DE varies Omega_m will have to be adjusted and vice versa
+                # (and Omega_m is adjusted by adjusting Omega_CDM), see the else statement
+
+                assert fiducial_values_dict['Omega_k'] == 0, 'if use_only_flat_models is True, Omega_k must be 0'
+                assert vfpd['Omega_k'] == 0, 'if use_only_flat_models is True, Omega_k must be 0'
+                assert 'Omega_k' not in list_params_to_vary, 'if use_only_flat_models is True, ' \
+                                                             'Omega_k must not be in list_params_to_vary'
+
+                # If I vary Omega_DE and Omega_k = 0, I need to adjust Omega_m
+                if param_to_vary == 'Omega_DE':
+                    vfpd['Omega_m'] = 1 - vfpd['Omega_DE']
+
+            else:
+                # If I vary Omega_DE or Omega_m and Omega_k can vary, I need to adjust Omega_k
+                vfpd['Omega_k'] = 1 - vfpd['Omega_m'] - vfpd['Omega_DE']
+                if np.abs(vfpd['Omega_k']) < 1e-8:
+                    vfpd['Omega_k'] = 0
+
+            vfpd['Omega_nu'] = omnuh2 / (vfpd['h'] ** 2)
+
+            Omega_c = (vfpd['Omega_m'] - vfpd['Omega_b'] - vfpd['Omega_nu'])
+
+            # print(
+            #     f'Omega_m = {vfpd["Omega_m"]:.4f}, Omega_c = {Omega_c:.4f}, Omega_b = {vfpd["Omega_b"]:.4f}, '
+            #     f'Omega_k = {vfpd["Omega_k"]:.4f}, Omega_nu = {vfpd["Omega_nu"]:.4f}, Omega_DE = {vfpd["Omega_DE"]:.4f}')
+
+        cosmo = ccl.Cosmology(Omega_c=(vfpd['Omega_m'] - vfpd['Omega_b'] - vfpd['Omega_nu']),
+                              Omega_b=vfpd['Omega_b'],
+                              w0=vfpd['w0'],
+                              wa=vfpd['wa'],
+                              h=vfpd['h'],
+                              sigma8=vfpd['sigma8'],
+                              n_s=vfpd['n_s'],
+                              m_nu=vfpd['m_nu'],
+                              Omega_k=vfpd['Omega_k'],
+                              extra_parameters={"camb": {"dark_energy_model": "DarkEnergyPPF"}}  # to cross w = -1
+                              )
+
+        print(f'Omega_m = {cosmo.cosmo.params.Omega_m}, vfpd["Omega_m"] = {vfpd["Omega_m"]}, ')
+        assert vfpd['Omega_m']/cosmo.cosmo.params.Omega_m - 1 < 1e-5, 'Omega_m is not the same as the one in the fiducial model'
+
+        # pdb.set_trace()
+        ia_bias_1d_arr = build_IA_bias_1d_arr(z_grid_out=z_grid_lumin_ratio,
+                                              input_z_grid_lumin_ratio=None,
+                                              input_lumin_ratio=None, cosmo=cosmo,
+                                              A_IA=vfpd['A_IA'], eta_IA=vfpd['eta_IA'],
+                                              beta_IA=vfpd['beta_IA'], C_IA=vfpd['C_IA'],
+                                              growth_factor=None,
+                                              Omega_m=cosmo.cosmo.params.Omega_m, output_F_IA_of_z=False)
+
+        ia_bias = (z_grid_lumin_ratio, ia_bias_1d_arr)
+
+        wil = [ccl.tracers.WeakLensingTracer(cosmo, dndz=(dndz[0], dndz[1][:, zbin_idx]),
+                                             ia_bias=ia_bias, use_A_ia=False) for zbin_idx in range(zbins)]
+        wil = [ccl.tracers.WeakLensingTracer(cosmo, dndz=(dndz[0], dndz[1][:, zbin_idx]),
+                                             ia_bias=ia_bias, use_A_ia=False) for zbin_idx in range(zbins)]
+
+        wil_PyCCL_obj = wil_PyCCL(z_grid, 'with_IA', cosmo=cosmo, return_PyCCL_object=True)
+        wig_PyCCL_obj = wig_PyCCL(z_grid, 'without_galaxy_bias', cosmo=cosmo, return_PyCCL_object=True)
+
+        cl_LL[param_to_vary][variation_idx, :, :, :] = cl_PyCCL(wil_PyCCL_obj, wil_PyCCL_obj, ell_LL, zbins,
+                                                                p_of_k_a=Pk, cosmo=cosmo)
+        cl_GL[param_to_vary][variation_idx, :, :, :] = cl_PyCCL(wig_PyCCL_obj, wil_PyCCL_obj, ell_GG, zbins,
+                                                                p_of_k_a=Pk, cosmo=cosmo)
+        cl_GG[param_to_vary][variation_idx, :, :, :] = cl_PyCCL(wig_PyCCL_obj, wig_PyCCL_obj, ell_GG, zbins,
+                                                                p_of_k_a=Pk, cosmo=cosmo)
+
+        print(
+            f'{param_to_vary} = {list_params_to_vary[param_to_vary]:.4f} Cls computed in {(time.perf_counter() - t0):.2f} '
+            f'seconds')
+
+        # once finished looping over the variations, reset the parameter to its fiducial value
+        # list_params_to_vary[param_to_vary] = fiducial_values_dict[param_to_vary]
+
+    # save the Cls
+    dcl_LL[param_to_vary] = stem(cl_LL[param_to_vary], vfpd[param_to_vary], zbins, nbl_WL)
+    dcl_GL[param_to_vary] = stem(cl_GL[param_to_vary], vfpd[param_to_vary], zbins, nbl_GC)
+    dcl_GG[param_to_vary] = stem(cl_GG[param_to_vary], vfpd[param_to_vary], zbins, nbl_GC)
+
+    print(f'SteM derivative computed for {param_to_vary}')
+    return dcl_LL, dcl_GL, dcl_GG
+
+
+a = wil_PyCCL(z_grid, 'with_IA', cosmo=None, return_PyCCL_object=False)
+print('yeee')
+
+fiducial_params = {
+    'Omega_m': ISTF.primary['Om_m0'],
+    'Omega_DE': ISTF.extensions['Om_Lambda0'],
+    'Omega_b': ISTF.primary['Om_b0'],
+    'w0': ISTF.primary['w_0'],
+    'wa': ISTF.primary['w_a'],
+    'h': ISTF.primary['h_0'],
+    'n_s': ISTF.primary['n_s'],
+    'sigma8': ISTF.primary['sigma_8'],
+    'm_nu': ISTF.extensions['m_nu'],
+    'A_IA': ISTF.IA_free['A_IA'],
+    'eta_IA': ISTF.IA_free['eta_IA'],
+    'beta_IA': ISTF.IA_free['beta_IA'],
+    'C_IA': ISTF.IA_fixed['C_IA'],
+    'Omega_k': ISTF.extensions['Om_k0'],
+}
+
+
+
+
+
+# test stem
+ell_LL = np.logspace(10, 3000, 20)
+list_params_to_vary = ['Omega_m', ]
+dcl_LL, dcl_GL, dcl_GG = compute_derivatives_v2(fiducial_params, list_params_to_vary, z_grid, zbins, ell_LL, ell_LL,
+                                                Pk=None, bias_model='step-wise', use_only_flat_models=False)
