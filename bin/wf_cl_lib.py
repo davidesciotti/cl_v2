@@ -1005,7 +1005,7 @@ def compute_derivatives(fiducial_params, free_params, fixed_params, z_grid, zbin
         return dcl_LL, dcl_GL, dcl_GG
 
 
-def compute_derivatives_v2(fiducial_values_dict, list_params_to_vary, z_grid, zbins, ell_LL, ell_GG,
+def compute_derivatives_v2(fiducial_values_dict, list_params_to_vary, zbins, ell_LL, ell_GG,
                            bias_model, Pk=None, use_only_flat_models=True):
     """
     Compute the derivatives of the power spectrum with respect to the free parameters
@@ -1019,17 +1019,11 @@ def compute_derivatives_v2(fiducial_values_dict, list_params_to_vary, z_grid, zb
     nbl_WL = len(ell_LL)
     nbl_GC = len(ell_GG)
 
-    # the redshift distribution and galaxy bias are not cosmology dependent, so they can be computed outside the loop
-    z_grid_nz_galbias = np.linspace(1e-5, 3, 1000)
+    z_grid_nz_and_galbias = np.linspace(1e-5, 3, 1000)
     niz_unnormalized = np.asarray(
-        [niz_unnormalized_analytical(z_grid_nz_galbias, zbin_idx) for zbin_idx in range(zbins)])
-    niz_normalized_arr = normalize_niz_simps(niz_unnormalized, z_grid_nz_galbias).T
-    dndz = (z_grid_nz_galbias, niz_normalized_arr)
-
-    assert zbins == 10, 'zbins must be 10 if bias_zgrid is not provided'
-    z_values = ISTF.photoz_bins['z_mean']
-    bias_values = np.asarray([b_of_z(z) for z in z_values])
-    gal_bias_2d_array = build_galaxy_bias_2d_arr(bias_values, z_values, zbins, z_grid_nz_galbias, bias_model)
+        [niz_unnormalized_analytical(z_grid_nz_and_galbias, zbin_idx) for zbin_idx in range(zbins)])
+    niz_normalized_arr = normalize_niz_simps(niz_unnormalized, z_grid_nz_and_galbias).T
+    dndz = (z_grid_nz_and_galbias, niz_normalized_arr)
 
     percentages = np.asarray((-10., -5., -3.75, -2.5, -1.875, -1.25, -0.625, 0,
                               0.625, 1.25, 1.875, 2.5, 3.75, 5., 10.)) / 100
@@ -1111,7 +1105,14 @@ def compute_derivatives_v2(fiducial_values_dict, list_params_to_vary, z_grid, zb
             warnings.warn('solve this small discrepancy, should not be due to neutrinos')
             print(f'cosmo.cosmo.params.Omega_m = {cosmo.cosmo.params.Omega_m}, vfpd["Omega_m"] = {vfpd["Omega_m"]}, ')
             assert vfpd[
-                       'Omega_m'] / cosmo.cosmo.params.Omega_m - 1 < 1e-5, 'Omega_m is not the same as the one in the fiducial model'
+                       'Omega_m'] / cosmo.cosmo.params.Omega_m - 1 < 1e-7, 'Omega_m is not the same as the one in the fiducial model'
+
+            # ! galaxy and IA bias
+            assert zbins == 10, 'zbins must be 10 if bias_zgrid is not provided'
+            galbias_zbin_mean_values = ISTF.photoz_bins['z_mean']
+            bias_values = np.array([vfpd[f'galaxy_bias_{zbin_idx:02d}'] for zbin_idx in range(zbins)])
+            gal_bias_2d_array = build_galaxy_bias_2d_arr(bias_values, galbias_zbin_mean_values, zbins,
+                                                         z_grid_nz_and_galbias, bias_model)
 
             ia_bias_1d_arr = build_IA_bias_1d_arr(z_grid_out=z_grid_lumin_ratio,
                                                   input_z_grid_lumin_ratio=None,
@@ -1126,7 +1127,7 @@ def compute_derivatives_v2(fiducial_values_dict, list_params_to_vary, z_grid, zb
             wil = [ccl.tracers.WeakLensingTracer(cosmo, dndz=(dndz[0], dndz[1][:, zbin_idx]),
                                                  ia_bias=ia_bias, use_A_ia=False) for zbin_idx in range(zbins)]
             wig = [ccl.tracers.NumberCountsTracer(cosmo, has_rsd=False, dndz=(dndz[0], dndz[1][:, zbin_idx]),
-                                                  bias=(z_grid_nz_galbias, gal_bias_2d_array[:, zbin_idx]),
+                                                  bias=(z_grid_nz_and_galbias, gal_bias_2d_array[:, zbin_idx]),
                                                   mag_bias=None)
                    for zbin_idx in range(zbins)]
 
@@ -1149,9 +1150,8 @@ def compute_derivatives_v2(fiducial_values_dict, list_params_to_vary, z_grid, zb
 
 
 a = wil_PyCCL(z_grid, 'with_IA', cosmo=None, return_PyCCL_object=False)
-print('yeee')
 
-fiducial_params = {
+fiducial_params_dict = {
     'Omega_m': ISTF.primary['Om_m0'],
     'Omega_DE': ISTF.extensions['Om_Lambda0'],
     'Omega_b': ISTF.primary['Om_b0'],
@@ -1168,8 +1168,14 @@ fiducial_params = {
     'Omega_k': ISTF.extensions['Om_k0'],
 }
 
+galbias_zbin_mean_values = ISTF.photoz_bins['z_mean']
+bias_values = np.asarray([b_of_z(z) for z in galbias_zbin_mean_values])
+fiducial_params_dict.update({f'galaxy_bias_{zbin_idx:02d}': bias_values[zbin_idx] for zbin_idx in range(zbins)})
+
 # test stem
 ell_LL = np.logspace(np.log10(10), np.log10(3000), 20)
-list_params_to_vary = ['Omega_m', ]
-dcl_LL, dcl_GL, dcl_GG = compute_derivatives_v2(fiducial_params, list_params_to_vary, z_grid, zbins, ell_LL, ell_LL,
-                                                Pk=None, bias_model='step-wise', use_only_flat_models=False)
+list_galbias_names = [f'galaxy_bias_{zbin_idx:02d}' for zbin_idx in range(zbins)]
+list_params_to_vary = ['Omega_m', 'Omega_b', 'w0', 'wa', 'h', 'n_s', 'sigma8', 'A_IA', 'eta_IA', 'beta_IA']
+list_params_to_vary = list_galbias_names
+dcl_LL, dcl_GL, dcl_GG = compute_derivatives_v2(fiducial_params_dict, list_params_to_vary, zbins, ell_LL, ell_LL,
+                                                bias_model='step-wise', Pk=None, use_only_flat_models=True)
