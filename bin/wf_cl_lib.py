@@ -1,4 +1,5 @@
 import pdb
+import pickle
 import warnings
 from copy import deepcopy
 
@@ -886,10 +887,8 @@ def stem(Cl_arr, variations_arr, zbins, nbl):
     return dCLL_arr
 
 
+"""
 def compute_derivatives(fiducial_params, free_params, fixed_params, z_grid, zbins, ell_LL, ell_GG, Pk=None):
-    """
-    Compute the derivatives of the power spectrum with respect to the free parameters
-    """
     # TODO cleanup the function, + make it single-probe
 
     nbl_WL = len(ell_LL)
@@ -1003,6 +1002,7 @@ def compute_derivatives(fiducial_params, free_params, fixed_params, z_grid, zbin
 
         print(f'SteM derivative computed for {param_to_vary}')
         return dcl_LL, dcl_GL, dcl_GG
+"""
 
 
 def compute_derivatives_v2(fiducial_values_dict, list_params_to_vary, zbins, ell_LL, ell_GG,
@@ -1013,8 +1013,6 @@ def compute_derivatives_v2(fiducial_values_dict, list_params_to_vary, zbins, ell
     # TODO cleanup the function, + make it single-probe
     # TODO implement checks on the input parameters
     # TODO input dndz galaxy and IA bias
-
-    assert 'Omega_k' not in list_params_to_vary, 'Omega_k cannot be varied at the moment'
 
     nbl_WL = len(ell_LL)
     nbl_GC = len(ell_GG)
@@ -1102,10 +1100,8 @@ def compute_derivatives_v2(fiducial_values_dict, list_params_to_vary, zbins, ell
                                   extra_parameters={"camb": {"dark_energy_model": "DarkEnergyPPF"}}  # to cross w = -1
                                   )
 
-            warnings.warn('solve this small discrepancy, should not be due to neutrinos')
-            print(f'cosmo.cosmo.params.Omega_m = {cosmo.cosmo.params.Omega_m}, vfpd["Omega_m"] = {vfpd["Omega_m"]}, ')
-            assert vfpd[
-                       'Omega_m'] / cosmo.cosmo.params.Omega_m - 1 < 1e-7, 'Omega_m is not the same as the one in the fiducial model'
+            # warnings.warn('there seems to be a small discrepancy here...')
+            assert (vfpd['Omega_m'] / cosmo.cosmo.params.Omega_m - 1) < 1e-7, 'Omega_m is not the same as the one in the fiducial model'
 
             # ! galaxy and IA bias
             assert zbins == 10, 'zbins must be 10 if bias_zgrid is not provided'
@@ -1148,34 +1144,41 @@ def compute_derivatives_v2(fiducial_values_dict, list_params_to_vary, zbins, ell
         print(f'SteM derivative computed for {param_to_vary}')
     return dcl_LL, dcl_GL, dcl_GG
 
-
-a = wil_PyCCL(z_grid, 'with_IA', cosmo=None, return_PyCCL_object=False)
-
-fiducial_params_dict = {
-    'Omega_m': ISTF.primary['Om_m0'],
-    'Omega_DE': ISTF.extensions['Om_Lambda0'],
-    'Omega_b': ISTF.primary['Om_b0'],
-    'w0': ISTF.primary['w_0'],
-    'wa': ISTF.primary['w_a'],
-    'h': ISTF.primary['h_0'],
-    'n_s': ISTF.primary['n_s'],
-    'sigma8': ISTF.primary['sigma_8'],
-    'm_nu': ISTF.extensions['m_nu'],
-    'A_IA': ISTF.IA_free['A_IA'],
-    'eta_IA': ISTF.IA_free['eta_IA'],
-    'beta_IA': ISTF.IA_free['beta_IA'],
-    'C_IA': ISTF.IA_fixed['C_IA'],
-    'Omega_k': ISTF.extensions['Om_k0'],
-}
-
-galbias_zbin_mean_values = ISTF.photoz_bins['z_mean']
-bias_values = np.asarray([b_of_z(z) for z in galbias_zbin_mean_values])
-fiducial_params_dict.update({f'galaxy_bias_{zbin_idx:02d}': bias_values[zbin_idx] for zbin_idx in range(zbins)})
-
-# test stem
-ell_LL = np.logspace(np.log10(10), np.log10(3000), 20)
-list_galbias_names = [f'galaxy_bias_{zbin_idx:02d}' for zbin_idx in range(zbins)]
-list_params_to_vary = ['Omega_m', 'Omega_b', 'w0', 'wa', 'h', 'n_s', 'sigma8', 'A_IA', 'eta_IA', 'beta_IA']
-list_params_to_vary = list_galbias_names
-dcl_LL, dcl_GL, dcl_GG = compute_derivatives_v2(fiducial_params_dict, list_params_to_vary, zbins, ell_LL, ell_LL,
-                                                bias_model='step-wise', Pk=None, use_only_flat_models=True)
+#
+# a = wil_PyCCL(z_grid, 'with_IA', cosmo=None, return_PyCCL_object=False)
+#
+# fiducial_params_dict = {
+#     'Omega_m': ISTF.primary['Om_m0'],
+#     'Omega_DE': ISTF.extensions['Om_Lambda0'],
+#     'Omega_b': ISTF.primary['Om_b0'],
+#     'w0': ISTF.primary['w_0'],
+#     'wa': ISTF.primary['w_a'],
+#     'h': ISTF.primary['h_0'],
+#     'n_s': ISTF.primary['n_s'],
+#     'sigma8': ISTF.primary['sigma_8'],
+#     'm_nu': ISTF.extensions['m_nu'],
+#     'A_IA': ISTF.IA_free['A_IA'],
+#     'eta_IA': ISTF.IA_free['eta_IA'],
+#     'beta_IA': ISTF.IA_free['beta_IA'],
+#     'C_IA': ISTF.IA_fixed['C_IA'],
+#     'Omega_k': ISTF.extensions['Om_k0'],
+# }
+#
+# galbias_zbin_mean_values = ISTF.photoz_bins['z_mean']
+# bias_values = np.asarray([b_of_z(z) for z in galbias_zbin_mean_values])
+# fiducial_params_dict.update({f'galaxy_bias_{zbin_idx:02d}': bias_values[zbin_idx] for zbin_idx in range(zbins)})
+#
+# # test stem
+# ell_LL = np.logspace(np.log10(10), np.log10(3000), 20)
+# list_galbias_names = [f'galaxy_bias_{zbin_idx:02d}' for zbin_idx in range(zbins)]
+# list_params_to_vary = ['Omega_m', 'Omega_b', 'w0', 'wa', 'h', 'n_s', 'sigma8', 'A_IA', 'eta_IA', 'beta_IA']
+# list_params_to_vary += list_galbias_names
+# dcl_LL, dcl_GL, dcl_GG = compute_derivatives_v2(fiducial_params_dict, list_params_to_vary, zbins, ell_LL, ell_LL,
+#                                                 bias_model='step-wise', Pk=None, use_only_flat_models=True)
+#
+# with open('../output/derivatives/dcl_LL.pkl', 'wb') as f:
+#     pickle.dump(dcl_LL, f)
+# with open('../output/derivatives/dcl_GL.pkl', 'wb') as f:
+#     pickle.dump(dcl_GL, f)
+# with open('../output/derivatives/dcl_GG.pkl', 'wb') as f:
+#     pickle.dump(dcl_GG, f)
