@@ -21,15 +21,15 @@ from functools import partial
 
 # project_path = Path.cwd().parent
 project_path = '/Users/davide/Documents/Lavoro/Programmi/cl_v2'
-project_path_parent = '/Users/davide/Documents/Lavoro/Programmi/cl_v2'
+project_path_parent = '/Users/davide/Documents/Lavoro/Programmi'
 
 # general libraries
-sys.path.append(f'{project_path_parent}/common_data/common_lib')
+sys.path.append(f'{project_path_parent}/common_lib_and_cfg/common_lib')
 import my_module as mm
 import cosmo_lib as csmlib
 
 # general configurations
-sys.path.append(f'{project_path_parent}/common_data/common_config')
+sys.path.append(f'{project_path_parent}/common_lib_and_cfg/common_config')
 import ISTF_fid_params as ISTF
 import mpl_cfg
 
@@ -432,6 +432,41 @@ def b_of_z(z):
     return np.sqrt(1 + z)
 
 
+def b_of_z_fs1_leporifit(z):
+    """fit to the linear galaxy bias measured from FS1. This is the fit used in Vincenzo's sscresponses paper,
+    I think... Not super sure which one I should use"""
+    return 0.5125 + 1.377 * z + 0.222 * z ** 2 - 0.249 * z ** 3
+
+
+def b_of_z_fs1_pocinofit(z):
+    """fit to the linear galaxy bias measured from FS1. This is the fit that should be used , at least for
+    the responses"""
+    a, b, c = 0.81, 2.80, 1.02
+    return a * z ** b / (1 + z) + c
+
+
+def b_of_z_fs2_fit(z, maglim):
+    # from the MCMC for SPV3 google doc: https://docs.google.com/document/d/1WCGhiBrlTsvl1VS-2ngpjirMnAS-ahtnoGX_7h8JoQU/edit
+    if maglim == 24.5:
+        b0_gal, b1_gal, b2_gal, b3_gal = 1.33291, -0.72414, 1.0183, -0.14913
+    elif maglim == 23:
+        b0_gal, b1_gal, b2_gal, b3_gal = 1.88571, -2.73925, 3.24688, -0.73496
+    else:
+        raise ValueError('maglim, i.e. the limiting magnitude of the GCph sample, must be 23 or 24.5')
+    return b0_gal + (b1_gal * z) + (b2_gal * z ** 2) + (b3_gal * z ** 3)
+
+
+def magbias_of_z_fs2_fit(z, maglim):
+    # from the MCMC for SPV3 google doc: https://docs.google.com/document/d/1WCGhiBrlTsvl1VS-2ngpjirMnAS-ahtnoGX_7h8JoQU/edit
+    if maglim == 24.5:
+        b0_mag, b1_mag, b2_mag, b3_mag = -1.50685, 1.35034, 0.08321, 0.04279
+    elif maglim == 23:
+        b0_mag, b1_mag, b2_mag, b3_mag = -2.34493, 3.73098, 0.12500, -0.01788
+    else:
+        raise ValueError('maglim, i.e. the limiting magnitude of the GCph sample, must be 23 or 24.5')
+    return b0_mag + (b1_mag * z) + (b2_mag * z ** 2) + (b3_mag * z ** 3)
+
+
 def stepwise_bias(z, bz_values):
     """bz_values is the array containing one bz value per redshift bin; this function copies this value for each z
     in the bin range"""
@@ -606,6 +641,17 @@ def instantiate_ISTFfid_PyCCL_cosmo_obj():
     return cosmo_ccl
 
 
+def instantiate_PyCCL_cosmo_obj(Om_m0, Om_b0, Om_Lambda0, w_0, w_a, h_0, sigma_8, n_s, m_nu):
+    """ very simple wrapper function to instantiate a PyCCL cosmology object from a dictionary of parameters"""
+    Om_nu0 = csmlib.get_Om_nu0(m_nu, h_0)
+    Om_c0 = Om_m0 - Om_b0 - Om_nu0
+    Om_k0 = csmlib.get_Omega_k0(Om_m0, Om_Lambda0)
+
+    cosmo_ccl = ccl.Cosmology(Omega_c=Om_c0, Omega_b=Om_b0, w0=w_0, wa=w_a, h=h_0, sigma8=sigma_8, n_s=n_s, m_nu=m_nu,
+                              Omega_k=Om_k0)
+    return cosmo_ccl
+
+
 def wig_PyCCL(z_grid, which_wf, gal_bias_2d_array=None, bias_model='step-wise', cosmo=None, return_PyCCL_object=False):
     # instantiate cosmology
     if cosmo is None:
@@ -720,7 +766,7 @@ pk_interp_func = interp2d(k_grid, z_grid, pk)
 
 # wrapper functions, just to shorten the names
 pk_nonlin_wrap = partial(csmlib.calculate_power, cosmo_classy=cosmo_classy, use_h_units=use_h_units,
-                         Pk_kind='nonlinear')
+                         Pk_kind='nonlinear')  # TODO update this
 kl_wrap = partial(csmlib.k_limber, use_h_units=use_h_units, cosmo_astropy=cosmo_astropy)
 
 
@@ -781,6 +827,7 @@ def cl_simps(wf_A, wf_B, ell, zi, zj):
     """ when used with LG or GG, this implements the "old bias"
     """
     integrand = [cl_integrand(z, wf_A, wf_B, zi, zj, ell) for z in z_grid]
+    # integrand = c/H0 * [cl_integrand(z, wf_A, wf_B, zi, zj, ell) for z in z_grid] prefactor??
     return scipy.integrate.simps(integrand, z_grid)
 
 
@@ -1101,7 +1148,8 @@ def compute_derivatives_v2(fiducial_values_dict, list_params_to_vary, zbins, ell
                                   )
 
             # warnings.warn('there seems to be a small discrepancy here...')
-            assert (vfpd['Omega_m'] / cosmo.cosmo.params.Omega_m - 1) < 1e-7, 'Omega_m is not the same as the one in the fiducial model'
+            assert (vfpd[
+                        'Omega_m'] / cosmo.cosmo.params.Omega_m - 1) < 1e-7, 'Omega_m is not the same as the one in the fiducial model'
 
             # ! galaxy and IA bias
             assert zbins == 10, 'zbins must be 10 if bias_zgrid is not provided'
@@ -1116,7 +1164,7 @@ def compute_derivatives_v2(fiducial_values_dict, list_params_to_vary, zbins, ell
                                                   A_IA=vfpd['A_IA'], eta_IA=vfpd['eta_IA'],
                                                   beta_IA=vfpd['beta_IA'], C_IA=vfpd['C_IA'],
                                                   growth_factor=None,
-                                                  Omega_m=cosmo.cosmo.params.Omega_m, output_F_IA_of_z=False)
+                                                  Omega_m=cosmo.cosmo.params.Omega_m, output_F_IAF_IA_of_z=False)
 
             ia_bias = (z_grid_lumin_ratio, ia_bias_1d_arr)
 
