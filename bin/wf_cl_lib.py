@@ -295,6 +295,8 @@ def niz_normalized(z, zbin_idx):
 def niz_unnormalized_analytical(z, zbin_idx, z_edges=z_edges):
     """the one used by Stefano in the PyCCL notebook
     by far the fastest, 0.009592 s"""
+
+    assert zbin_idx < 10, 'this is the analitical function used in ISTF, it does not work for zbins > 10'
     addendum_1 = erf((z - z_out - c_out * z_edges[zbin_idx]) / (sqrt2 * (1 + z) * sigma_out))
     addendum_2 = erf((z - z_out - c_out * z_edges[zbin_idx + 1]) / (sqrt2 * (1 + z) * sigma_out))
     addendum_3 = erf((z - z_in - c_in * z_edges[zbin_idx]) / (sqrt2 * (1 + z) * sigma_in))
@@ -652,7 +654,8 @@ def instantiate_PyCCL_cosmo_obj(Om_m0, Om_b0, Om_Lambda0, w_0, w_a, h_0, sigma_8
     return cosmo_ccl
 
 
-def wig_PyCCL(z_grid, which_wf, gal_bias_2d_array=None, bias_model='step-wise', cosmo=None, return_PyCCL_object=False):
+def wig_PyCCL(z_grid, which_wf, gal_bias_2d_array=None, bias_model='step-wise', cosmo=None, return_PyCCL_object=False,
+              dndz=None):
     # instantiate cosmology
     if cosmo is None:
         cosmo = instantiate_ISTFfid_PyCCL_cosmo_obj()
@@ -663,15 +666,30 @@ def wig_PyCCL(z_grid, which_wf, gal_bias_2d_array=None, bias_model='step-wise', 
         z_values = ISTF.photoz_bins['z_mean']
         bias_values = np.asarray([b_of_z(z) for z in z_values])
         gal_bias_2d_array = build_galaxy_bias_2d_arr(bias_values, z_values, zbins, z_grid, bias_model)
+    if np.all(gal_bias_2d_array == 1):  # i.e., no galaxy bias
+        gal_bias_2d_array = np.ones((len(z_grid), zbins))
+
+
+    # redshift distribution
+    if dndz is None:
+        niz_unnormalized_arr = np.asarray([niz_unnormalized_analytical(z_grid, zbin_idx) for zbin_idx in range(zbins)])
+        niz_normalized_arr = normalize_niz_simps(niz_unnormalized_arr, z_grid).T  # ! unnecessary to normalize
+        dndz = (z_grid, niz_normalized_arr)
+
+    assert len(dndz) == 2, 'dndz must be a tuple of length 2'
+    assert dndz[0].shape[0] == dndz[1].shape[0], ('dndz must be a tuple of two arrays of shape len(z_grid) and '
+                                                  '(len(z_grid), zbins) respectively')
+    assert dndz[1].shape[1] == zbins, ('dndz must be a tuple of two arrays of shape len(z_grid) and '
+                                       '(len(z_grid), zbins) respectively')
 
     # redshift distribution
     niz_unnormalized = np.asarray([niz_unnormalized_analytical(z_grid, zbin_idx) for zbin_idx in range(zbins)])
     niz_normalized_arr = normalize_niz_simps(niz_unnormalized, z_grid).T
 
-    assert gal_bias_2d_array.shape == (len(z_grid), zbins), 'gal_bias_2d_array must have shape as (len(z_grid), zbins)'
-    assert niz_normalized_arr.shape == (len(z_grid), zbins), 'gal_bias_2d_array must have shape as (len(z_grid), zbins)'
+    assert gal_bias_2d_array.shape == (len(z_grid), zbins), 'gal_bias_2d_array must have shape (len(z_grid), zbins)'
+    assert niz_normalized_arr.shape == (len(z_grid), zbins), 'gal_bias_2d_array must have shape (len(z_grid), zbins)'
 
-    wig = [ccl.tracers.NumberCountsTracer(cosmo, has_rsd=False, dndz=(z_grid, niz_normalized_arr[:, zbin_idx]),
+    wig = [ccl.tracers.NumberCountsTracer(cosmo, has_rsd=False, dndz=(dndz[0], dndz[1][:, zbin_idx]),
                                           bias=(z_grid, gal_bias_2d_array[:, zbin_idx]), mag_bias=None)
            for zbin_idx in range(zbins)]
 
@@ -717,14 +735,15 @@ def wil_PyCCL(z_grid, which_wf, cosmo=None, dndz=None, ia_bias=None, return_PyCC
 
     # redshift distribution
     if dndz is None:
-        z_grid_nz = np.linspace(1e-5, 3, 1000)
-        niz_unnormalized = np.asarray([niz_unnormalized_analytical(z_grid_nz, zbin_idx) for zbin_idx in range(zbins)])
-        niz_normalized_arr = normalize_niz_simps(niz_unnormalized, z_grid_nz).T  # ! unnecessary to normalize
-        dndz = (z_grid_nz, niz_normalized_arr)
+        niz_unnormalized_arr = np.asarray([niz_unnormalized_analytical(z_grid, zbin_idx) for zbin_idx in range(zbins)])
+        niz_normalized_arr = normalize_niz_simps(niz_unnormalized_arr, z_grid).T  # ! unnecessary to normalize
+        dndz = (z_grid, niz_normalized_arr)
 
     assert len(dndz) == 2, 'dndz must be a tuple of length 2'
-    assert dndz[0].shape[0] == dndz[1].shape[0], 'dndz must be a tuple of two arrays of the same shape'
-    assert dndz[1].shape[1] == zbins, 'dndz must be a tuple of two arrays of shape (len(z_grid), zbins)'
+    assert dndz[0].shape[0] == dndz[1].shape[0], ('dndz must be a tuple of two arrays of shape len(z_grid) and '
+                                                  '(len(z_grid), zbins) respectively')
+    assert dndz[1].shape[1] == zbins, ('dndz must be a tuple of two arrays of shape len(z_grid) and '
+                                       '(len(z_grid), zbins) respectively')
 
     # compute the tracer objects
     wil = [ccl.tracers.WeakLensingTracer(cosmo, dndz=(dndz[0], dndz[1][:, zbin_idx]), ia_bias=ia_bias, use_A_ia=False,
@@ -860,6 +879,9 @@ def cl_PyCCL(wf_A, wf_B, ell, zbins, p_of_k_a, cosmo, limber_integration_method=
     # instantiate cosmology
     if cosmo is None:
         cosmo = instantiate_ISTFfid_PyCCL_cosmo_obj()
+
+    if p_of_k_a is None:
+        p_of_k_a = cosmo.get_nonlin_power()
 
     is_auto_spectrum = False
     if wf_A == wf_B:
