@@ -655,7 +655,7 @@ def instantiate_PyCCL_cosmo_obj(Om_m0, Om_b0, Om_Lambda0, w_0, w_a, h_0, sigma_8
 
 
 def wig_PyCCL(z_grid, which_wf, gal_bias_2d_array=None, bias_model='step-wise', cosmo=None, return_PyCCL_object=False,
-              dndz=None):
+              dndz=None, n_samples=1000):
     # instantiate cosmology
     if cosmo is None:
         cosmo = instantiate_ISTFfid_PyCCL_cosmo_obj()
@@ -668,7 +668,6 @@ def wig_PyCCL(z_grid, which_wf, gal_bias_2d_array=None, bias_model='step-wise', 
         gal_bias_2d_array = build_galaxy_bias_2d_arr(bias_values, z_values, zbins, z_grid, bias_model)
     if np.all(gal_bias_2d_array == 1):  # i.e., no galaxy bias
         gal_bias_2d_array = np.ones((len(z_grid), zbins))
-
 
     # redshift distribution
     if dndz is None:
@@ -690,7 +689,7 @@ def wig_PyCCL(z_grid, which_wf, gal_bias_2d_array=None, bias_model='step-wise', 
     assert niz_normalized_arr.shape == (len(z_grid), zbins), 'gal_bias_2d_array must have shape (len(z_grid), zbins)'
 
     wig = [ccl.tracers.NumberCountsTracer(cosmo, has_rsd=False, dndz=(dndz[0], dndz[1][:, zbin_idx]),
-                                          bias=(z_grid, gal_bias_2d_array[:, zbin_idx]), mag_bias=None)
+                                          bias=(z_grid, gal_bias_2d_array[:, zbin_idx]), mag_bias=None, n_samples=n_samples)
            for zbin_idx in range(zbins)]
 
     if return_PyCCL_object:
