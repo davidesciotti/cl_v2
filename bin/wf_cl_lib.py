@@ -780,7 +780,6 @@ def wil_PyCCL(z_grid, which_wf, cosmo=None, dndz=None, ia_bias=None, return_PyCC
 cosmo_classy = csmlib.cosmo_classy
 cosmo_astropy = csmlib.cosmo_astropy
 k_grid, pk = csmlib.calculate_power(k_grid, z_grid, cosmo_classy, use_h_units=use_h_units)
-pk_interp_func = interp2d(k_grid, z_grid, pk)
 
 # wrapper functions, just to shorten the names
 pk_nonlin_wrap = partial(csmlib.calculate_power, cosmo_classy=cosmo_classy, use_h_units=use_h_units,
