@@ -1168,32 +1168,6 @@ def cls_and_derivatives(fiducial_values_dict, list_params_to_vary, zbins, dndz, 
             assert (varied_fiducials[
                         'Om_m0'] / cosmo_ccl.cosmo.params.Omega_m - 1) < 1e-7, 'Om_m0 is not the same as the one in the fiducial model'
 
-            # ! galaxy and IA bias
-            # assert zbins == 10, 'zbins must be 10 if bias_zgrid is not provided'
-            # galbias_zbin_mean_values = ISTF.photoz_bins['z_mean']
-            # bias_values = np.array([varied_fiducials[f'galaxy_bias_{zbin_idx:02d}'] for zbin_idx in range(zbins)])
-            # gal_bias_2d_array = build_galaxy_bias_2d_arr(bias_values, galbias_zbin_mean_values, zbins,
-            #                                              z_grid_nz_and_galbias, bias_model)
-            #
-            # ia_bias_1d_arr = build_IA_bias_1d_arr(z_grid_out=z_grid_lumin_ratio,
-            #                                       input_z_grid_lumin_ratio=None,
-            #                                       input_lumin_ratio=None, cosmo=cosmo_ccl,
-            #                                       A_IA=varied_fiducials['A_IA'], eta_IA=varied_fiducials['eta_IA'],
-            #                                       beta_IA=varied_fiducials['beta_IA'], C_IA=varied_fiducials['C_IA'],
-            #                                       growth_factor=None,
-            #                                       Omega_m=cosmo_ccl.cosmo.params.Omega_m, output_F_IA_of_z=False)
-            #
-            # ia_bias = (z_grid_lumin_ratio, ia_bias_1d_arr)
-            #
-            # wil = [ccl.tracers.WeakLensingTracer(cosmo_ccl, dndz=(dndz[0], dndz[1][:, zbin_idx]),
-            #                                      ia_bias=ia_bias, use_A_ia=False) for zbin_idx in range(zbins)]
-            # wig = [ccl.tracers.NumberCountsTracer(cosmo_ccl, has_rsd=False, dndz=(dndz[0], dndz[1][:, zbin_idx]),
-            #                                       bias=(z_grid_nz_and_galbias, gal_bias_2d_array[:, zbin_idx]),
-            #                                       mag_bias=None)
-            #        for zbin_idx in range(zbins)]
-
-            # ! new versionzzzzz
-
             wl_kernel = wil_PyCCL(z_grid, 'with_IA', cosmo=cosmo_ccl, dndz=dndz,
                                   ia_bias=None, A_IA=varied_fiducials['A_IA'],
                                   eta_IA=varied_fiducials['eta_IA'],
