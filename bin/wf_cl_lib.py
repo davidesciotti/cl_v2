@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pyccl as ccl
 import type_enforced
+from joblib import Parallel, delayed
 from numba import njit
 from scipy.integrate import quad, quad_vec, simpson, dblquad, simps
 from scipy.interpolate import interp1d, interp2d
@@ -1079,7 +1080,7 @@ def compute_derivatives(fiducial_params, free_params, fixed_params, z_grid, zbin
 """
 
 
-def cls_and_derivatives(fiducial_values_dict, list_params_to_vary, zbins, dndz, ell_LL, ell_GG,
+def cls_and_derivatives(fiducial_values_dict, list_params_to_vary, zbins, dndz, ell_LL, ell_GL, ell_GG,
                         bias_model, pk=None, use_only_flat_models=True):
     """
     Compute the derivatives of the power spectrum with respect to the free parameters
@@ -1153,29 +1154,14 @@ def cls_and_derivatives(fiducial_values_dict, list_params_to_vary, zbins, dndz, 
                 if np.abs(varied_fiducials['Om_k0']) < 1e-8:
                     varied_fiducials['Om_k0'] = 0
 
-            varied_fiducials['Omega_nu'] = omnuh2 / (varied_fiducials['h'] ** 2)
+            varied_fiducials['Om_nu0'] = omnuh2 / (varied_fiducials['h'] ** 2)
 
             # print to check that the Omegas, if you need to debug
-            # Omega_c = (varied_fiducials['Om_m0'] - varied_fiducials['Omega_b'] - varied_fiducials['Omega_nu'])
+            # Omega_c = (varied_fiducials['Om_m0'] - varied_fiducials['Omega_b'] - varied_fiducials['Om_nu0'])
             # print(
             #     f'Om_m0 = {varied_fiducials["Om_m0"]:.4f}, Omega_c = {Omega_c:.4f}, Omega_b = {varied_fiducials["Omega_b"]:.4f}, '
-            #     f'Om_k0 = {varied_fiducials["Om_k0"]:.4f}, Omega_nu = {varied_fiducials["Omega_nu"]:.4f}, Om_Lambda0 = {varied_fiducials["Om_Lambda0"]:.4f}')
+            #     f'Om_k0 = {varied_fiducials["Om_k0"]:.4f}, Om_nu0 = {varied_fiducials["Om_nu0"]:.4f}, Om_Lambda0 = {varied_fiducials["Om_Lambda0"]:.4f}')
 
-            # breakpoint()
-
-            # cosmo_ccl = ccl.Cosmology(
-            #     Omega_c=(varied_fiducials['Om_m0'] - varied_fiducials['Omega_b'] - varied_fiducials['Omega_nu']),
-            #     Omega_b=varied_fiducials['Omega_b'],
-            #     w0=varied_fiducials['w0'],
-            #     wa=varied_fiducials['wa'],
-            #     h=varied_fiducials['h'],
-            #     sigma8=varied_fiducials['sigma8'],
-            #     n_s=varied_fiducials['n_s'],
-            #     m_nu=varied_fiducials['m_nu'],
-            #     Om_k0=varied_fiducials['Om_k0'],
-            #     matter_power_spectrum='halofit',
-            #     extra_parameters={"camb": {"dark_energy_model": "DarkEnergyPPF"}}  # to cross w = -1
-            # )
             cosmo_ccl = csmlib.instantiate_cosmo_ccl_obj(varied_fiducials)
 
             # warnings.warn('there seems to be a small discrepancy here...')
@@ -1238,4 +1224,138 @@ def cls_and_derivatives(fiducial_values_dict, list_params_to_vary, zbins, dndz, 
         dcl_GG[param_to_vary] = stem(cl_GG[param_to_vary], varied_param_values, zbins, nbl_GC)
 
         print(f'SteM derivative computed for {param_to_vary}')
+
     return cl_LL, cl_GL, cl_GG, dcl_LL, dcl_GL, dcl_GG
+
+
+def cls_and_derivatives_parallel(fiducial_values_dict, list_params_to_vary, zbins, dndz, ell_LL, ell_GL, ell_GG,
+                                 bias_model, pk=None, use_only_flat_models=True):
+    """
+    Compute the derivatives of the power spectrum with respect to the free parameters
+    """
+    # TODO cleanup the function, + make it single-probe
+    # TODO implement checks on the input parameters
+    # TODO input dndz galaxy and IA bias
+
+    nbl_WL = len(ell_LL)
+    nbl_GC = len(ell_GG)
+
+    percentages = np.asarray((-10., -5., -3.75, -2.5, -1.875, -1.25, -0.625, 0,
+                              0.625, 1.25, 1.875, 2.5, 3.75, 5., 10.)) / 100
+    num_points_derivative = len(percentages)
+
+    z_grid = np.linspace(1e-3, 3, 1000)
+
+    # declare cl and dcl vectors
+    cl_LL, cl_GL, cl_GG = {}, {}, {}
+    dcl_LL, dcl_GL, dcl_GG = {}, {}, {}
+
+    # loop over the free parameters and store the cls in a dictionary
+    for param_to_vary in list_params_to_vary:
+
+        assert param_to_vary in fiducial_values_dict.keys(), f'{param_to_vary} is not in the fiducial values dict'
+
+        t0 = time.perf_counter()
+
+        print(f'working on {param_to_vary}...')
+
+        # shift the parameter
+        varied_param_values = fiducial_values_dict[param_to_vary] + fiducial_values_dict[param_to_vary] * percentages
+        if param_to_vary == "wa":  # wa is 0! take directly the percentages
+            varied_param_values = percentages
+
+        # ricorda che, quando shifti OmegaM va messo OmegaCDM in modo che OmegaB + OmegaCDM dia il valore corretto di OmegaM,
+        # mentre quando shifti OmegaB deve essere aggiustato sempre OmegaCDM in modo che OmegaB + OmegaCDM = 0.32; per OmegaX
+        # lo shift ti darà un OmegaM + OmegaDE diverso da 1 il che corrisponde appunto ad avere modelli non piatti
+
+        # this dictionary will contain the shifted values of the parameters; it is initialized with the fiducial values
+        # for each new parameter to be varied
+        # ! important note: the fiducial and varied_fiducial dict contain all cosmological parameters, not just the ones
+        # ! that are varied (specified in list_params_to_vary). This is to be able to change the set of
+        # ! varied parameters easily
+        varied_fiducials = deepcopy(fiducial_values_dict)
+
+        # instantiate derivatives array for the given free parameter key
+        cl_LL[param_to_vary] = np.zeros((num_points_derivative, nbl_WL, zbins, zbins))
+        cl_GL[param_to_vary] = np.zeros((num_points_derivative, nbl_GC, zbins, zbins))
+        cl_GG[param_to_vary] = np.zeros((num_points_derivative, nbl_GC, zbins, zbins))
+
+        # ! newwww
+        results = Parallel(n_jobs=-1, backend='threading')(
+            delayed(cl_parallel_helper)(param_to_vary, variation_idx, varied_fiducials, cl_LL, cl_GL, cl_GG,
+                                        fiducial_values_dict,
+                                        list_params_to_vary, zbins, dndz, ell_LL, ell_GL, ell_GG,
+                                        bias_model, pk=pk, use_only_flat_models=use_only_flat_models) for
+            variation_idx, varied_fiducials[param_to_vary] in tqdm(enumerate(varied_param_values)))
+
+        # Collect the results
+        for variation_idx, cl_LL_part, cl_GL_part, cl_GG_part in results:
+            cl_LL[param_to_vary][variation_idx, :, :, :] = cl_LL_part
+            cl_GL[param_to_vary][variation_idx, :, :, :] = cl_GL_part
+            cl_GG[param_to_vary][variation_idx, :, :, :] = cl_GG_part
+        # ! and newwww
+
+        for variation_idx, varied_fiducials[param_to_vary] in tqdm(enumerate(varied_param_values)):
+            print(f'param {param_to_vary} Cls computed in {(time.perf_counter() - t0):.2f} seconds')
+
+        # once finished looping over the variations, reset the parameter to its fiducial value
+        # list_params_to_vary[param_to_vary] = fiducial_values_dict[param_to_vary]
+
+        # save the Cls
+        dcl_LL[param_to_vary] = stem(cl_LL[param_to_vary], varied_param_values, zbins, nbl_WL)
+        dcl_GL[param_to_vary] = stem(cl_GL[param_to_vary], varied_param_values, zbins, nbl_GC)
+        dcl_GG[param_to_vary] = stem(cl_GG[param_to_vary], varied_param_values, zbins, nbl_GC)
+
+        print(f'SteM derivative computed for {param_to_vary}')
+    return cl_LL, cl_GL, cl_GG, dcl_LL, dcl_GL, dcl_GG
+
+
+def cl_parallel_helper(param_to_vary, variation_idx, varied_fiducials, cl_LL, cl_GL, cl_GG, fiducial_values_dict,
+                       list_params_to_vary, zbins, dndz, ell_LL, ell_GL, ell_GG,
+                       bias_model, pk=None, use_only_flat_models=True):
+    if use_only_flat_models:
+        # in this case I want omk = 0, so if Om_Lambda0 varies Om_m0 will have to be adjusted and vice versa
+        # (and Om_m0 is adjusted by adjusting Omega_CDM), see the else statement
+
+        assert fiducial_values_dict['Om_k0'] == 0, 'if use_only_flat_models is True, Om_k0 must be 0'
+        assert varied_fiducials['Om_k0'] == 0, 'if use_only_flat_models is True, Om_k0 must be 0'
+        assert 'Om_k0' not in list_params_to_vary, 'if use_only_flat_models is True, ' \
+                                                   'Om_k0 must not be in list_params_to_vary'
+
+        # If I vary Om_Lambda0 and Om_k0 = 0, I need to adjust Om_m0
+        if param_to_vary == 'Om_Lambda0':
+            varied_fiducials['Om_m0'] = 1 - varied_fiducials['Om_Lambda0']
+
+    else:
+        # If I vary Om_Lambda0 or Om_m0 and Om_k0 can vary, I need to adjust Om_k0
+        varied_fiducials['Om_k0'] = 1 - varied_fiducials['Om_m0'] - varied_fiducials['Om_Lambda0']
+        if np.abs(varied_fiducials['Om_k0']) < 1e-8:
+            varied_fiducials['Om_k0'] = 0
+
+    varied_fiducials['Om_nu0'] = omnuh2 / (varied_fiducials['h'] ** 2)
+
+    cosmo_ccl = csmlib.instantiate_cosmo_ccl_obj(varied_fiducials)
+
+    # warnings.warn('there seems to be a small discrepancy here...')
+    assert (varied_fiducials[
+                'Om_m0'] / cosmo_ccl.cosmo.params.Omega_m - 1) < 1e-7, 'Om_m0 is not the same as the one in the fiducial model'
+
+    wl_kernel = wil_PyCCL(z_grid, 'with_IA', cosmo=cosmo_ccl, dndz=dndz,
+                          ia_bias=None, A_IA=varied_fiducials['A_IA'],
+                          eta_IA=varied_fiducials['eta_IA'],
+                          beta_IA=varied_fiducials['beta_IA'], C_IA=varied_fiducials['C_IA'],
+                          growth_factor=None,
+                          return_PyCCL_object=True, n_samples=1000)
+
+    gc_kernel = wig_PyCCL(z_grid, 'with_galaxy_bias', gal_bias_2d_array=None,
+                          fiducial_params=varied_fiducials,
+                          bias_model=bias_model, cosmo=cosmo_ccl, return_PyCCL_object=True,
+                          dndz=dndz, n_samples=1000)
+
+    cl_LL[param_to_vary][variation_idx, :, :, :] = cl_PyCCL(wl_kernel, wl_kernel, ell_LL, zbins, p_of_k_a=pk,
+                                                            cosmo=cosmo_ccl)
+    cl_GL[param_to_vary][variation_idx, :, :, :] = cl_PyCCL(gc_kernel, wl_kernel, ell_GL, zbins, p_of_k_a=pk,
+                                                            cosmo=cosmo_ccl)
+    cl_GG[param_to_vary][variation_idx, :, :, :] = cl_PyCCL(gc_kernel, gc_kernel, ell_GG, zbins, p_of_k_a=pk,
+                                                            cosmo=cosmo_ccl)
+    return cl_LL, cl_GL, cl_GG
