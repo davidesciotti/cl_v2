@@ -917,12 +917,12 @@ def cl_PyCCL(wf_A, wf_B, ell, zbins, p_of_k_a, cosmo, limber_integration_method=
     return cl_3D
 
 
-def stem(Cl_arr, variations_arr, zbins, nbl):
+def stem(cl_4d, variations_arr, zbins, nbl):
     # instantiate array of derivatives
-    dCLL_arr = np.zeros((nbl, zbins, zbins))
+    dcl_3d = np.zeros((nbl, zbins, zbins))
 
     # create copy of the "x" and "y" arrays, because their items could get popped by the stem algorithm
-    Cl_arr_cpy = Cl_arr.copy()
+    cl_4d_cpy = cl_4d.copy()
     variations_arr_cpy = variations_arr.copy()
 
     # TODO is there a way to specify the axis along which to fit, instead of having to loop over i, j, ell?
@@ -931,34 +931,55 @@ def stem(Cl_arr, variations_arr, zbins, nbl):
             for ell in range(nbl):
 
                 # perform linear fit
-                angular_coefficient, c = np.polyfit(variations_arr_cpy, Cl_arr_cpy[:, ell, zi, zj], deg=1)
-                fitted_y_values = angular_coefficient * variations_arr_cpy + c
+                angular_coefficient, intercept = np.polyfit(variations_arr_cpy, cl_4d_cpy[:, ell, zi, zj], deg=1)
+                fitted_y_values = angular_coefficient * variations_arr_cpy + intercept
 
                 # check % difference
-                perc_diffs = mm.percent_diff(Cl_arr_cpy[:, ell, zi, zj], fitted_y_values)
+                perc_diffs = mm.percent_diff(cl_4d_cpy[:, ell, zi, zj], fitted_y_values)
 
                 # as long as any element has a percent deviation greater than 1%, remove first and last values
-                while np.any(perc_diffs > 1):
-                    print('removing first and last values, perc_diffs array:', perc_diffs)
-
-                    # the condition is satisfied, removing the first and last values
-                    Cl_arr_cpy = np.delete(Cl_arr_cpy, [0, -1], axis=0)
+                while np.any(np.abs(perc_diffs) > 1):
+                    # if the condition is satisfied, remove the first and last values
+                    cl_4d_cpy = np.delete(cl_4d_cpy, [0, -1], axis=0)
                     variations_arr_cpy = np.delete(variations_arr_cpy, [0, -1])
 
                     # re-compute the fit on the reduced set
-                    angular_coefficient, intercept = np.polyfit(variations_arr_cpy, Cl_arr_cpy[:, ell, zi, zj], deg=1)
+                    angular_coefficient, intercept = np.polyfit(variations_arr_cpy, cl_4d_cpy[:, ell, zi, zj], deg=1)
                     fitted_y_values = angular_coefficient * variations_arr_cpy + intercept
 
                     # test again
-                    perc_diffs = mm.percent_diff(Cl_arr_cpy[:, ell, zi, zj], fitted_y_values)
+                    perc_diffs = mm.percent_diff(cl_4d_cpy[:, ell, zi, zj], fitted_y_values)
 
+                    # breakpoint()
                     # plt.figure()
-                    # plt.plot(Omega_c_values_toder, fitted_y_values, '--', lw=2, c=colors[iteration])
-                    # plt.plot(Omega_c_values_toder, CLL_toder[:, ell, zi, zj], marker='o', c=colors[iteration])
+                    # plt.plot(variations_arr_cpy, fitted_y_values, '--', lw=2)
+                    # plt.plot(variations_arr, cl_4d_cpy[:, ell, zi, zj][:, ell, zi, zj], marker='o')
 
                 # store the value of the derivative
-                dCLL_arr[ell, zi, zj] = angular_coefficient
+                dcl_3d[ell, zi, zj] = angular_coefficient
 
+    return dcl_3d
+
+
+def optimized_stem(Cl_arr, variations_arr, zbins, nbl):
+    dCLL_arr = np.zeros((nbl, zbins, zbins))
+    for zi in range(zbins):
+        for zj in range(zbins):
+            for ell in range(nbl):
+                subarray = Cl_arr[:, ell, zi, zj]
+                local_variations_arr = variations_arr.copy()
+                angular_coefficient, _ = np.polyfit(local_variations_arr, subarray, deg=1)
+                fitted_y_values = angular_coefficient * local_variations_arr
+                perc_diffs = np.abs((subarray - fitted_y_values) / subarray) * 100
+                while np.any(perc_diffs > 1):
+                    subarray = subarray[1:-1]
+                    local_variations_arr = local_variations_arr[1:-1]
+                    if len(subarray) == 0:
+                        break
+                    angular_coefficient, _ = np.polyfit(local_variations_arr, subarray, deg=1)
+                    fitted_y_values = angular_coefficient * local_variations_arr
+                    perc_diffs = np.abs((subarray - fitted_y_values) / subarray) * 100
+                dCLL_arr[ell, zi, zj] = angular_coefficient
     return dCLL_arr
 
 
