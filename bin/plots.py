@@ -6,7 +6,7 @@ plt.rcParams['axes.labelsize'] = 16
 plt.rcParams['axes.titlesize'] = 16
 
 
-path = "C:/Users/dscio/Documents/Lavoro/Programmi/Cij_davide"
+path = "C:/Users/dscio/Documents/Lavoro/Programmi/Cij_davide" 
 
 def interpolation(z, array_toInterpolate, column):
     interpolation = interp1d(array_toInterpolate[:,0], array_toInterpolate[:,column + 1], kind = "linear")
